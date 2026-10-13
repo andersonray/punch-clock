@@ -589,20 +589,14 @@ export class PcWeekView extends LitElement {
         background: color-mix(in srgb, var(--block-color) 42%, var(--pc-card));
         box-shadow: inset 0 0 0 1px var(--block-color);
       }
-      /* Conditions not met: faded and hatched, with a dashed edge, so it reads as "off". */
+      /* Conditions not met: hatched (plus the badge); kept on hover, which resets background. */
       .block.unmet,
       .block.unmet:hover {
-        background-color: color-mix(in srgb, var(--block-color) 10%, var(--pc-card));
         background-image: repeating-linear-gradient(
           135deg,
           transparent 0 5px,
           color-mix(in srgb, var(--pc-text) 10%, transparent) 5px 10px
         );
-        border-left-style: dashed;
-        color: var(--pc-text-2);
-      }
-      .block.unmet:hover {
-        background-color: color-mix(in srgb, var(--block-color) 18%, var(--pc-card));
       }
       .badges .unmet-badge {
         color: var(--pc-warning);
