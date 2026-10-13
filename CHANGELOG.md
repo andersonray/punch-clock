@@ -26,6 +26,6 @@ First version.
   24-hour with an inner ring for 00 and 13-23. You can also type them.
 - The dropdown of suggested condition values always lists every value, with values matching
   what you've typed at the top.
-- Blocks whose conditions aren't met right now are marked in the calendar, and all blocks are
-  faded while their tab isn't running.
+- Blocks that won't run right now are hatched in the calendar: those whose own conditions
+  aren't met (also marked with an icon), and every block of a tab that isn't running.
 - Leaving a block with unsaved changes offers Save as well as Discard.
