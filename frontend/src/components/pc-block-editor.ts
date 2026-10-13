@@ -39,18 +39,16 @@ import "./pc-action-editor";
 import "./pc-condition-editor";
 import "./pc-time-input";
 
-/** The editor's unsaved name and color, for showing in the calendar before saving. */
-export interface BlockPreview {
+/** The editor's unsaved name, color and time, for showing in the calendar before saving. */
+export type BlockPreview = Pick<Block, "name" | "color" | "day" | "start" | "duration"> & {
   blockId: string;
-  name: string;
-  color: string;
-}
+};
 
 /**
  * Side panel (full screen when narrow) for editing one block. Works on a draft;
  * Save writes it. Events: `close-editor`, `delete-block`, `duplicate-block`
- * ({ block }), `start-eyedropper`, `preview-changed` (BlockPreview: the color as
- * soon as it changes, the name once the name field loses focus).
+ * ({ block }), `start-eyedropper`, `preview-changed` (BlockPreview: color, day and
+ * times as soon as they change, the name once the name field loses focus).
  */
 export class PcBlockEditor extends LitElement {
   static override properties = {
@@ -144,10 +142,14 @@ export class PcBlockEditor extends LitElement {
       }
     }
     if (this._draft) {
+      const { id, color, day, start, duration } = this._draft;
       const preview: BlockPreview = {
-        blockId: this._draft.id,
+        blockId: id,
         name: this.previewName,
-        color: this._draft.color,
+        color,
+        day,
+        start,
+        duration,
       };
       const key = JSON.stringify(preview);
       if (key !== this.lastPreview) {

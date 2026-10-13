@@ -56,14 +56,17 @@ Open **Punch Clock** in the sidebar.
   then drag. The **+ Block** button adds a one-hour block at the next full hour. Each day column
   keeps a strip on its right free, so you can always drag out a new block next to existing ones.
 - **Edit a block.** Click it. The editor sets the name, color, day, start and stop times (a stop
-  earlier than the start ends the next day), actions and conditions. A new color shows in the
-  calendar right away, and a new name once you leave the name field, but neither is kept until you
-  click **Save**. To make the editor wider or narrower, drag the divider between it and the
+  earlier than the start ends the next day), actions and conditions. Click a start or stop time to
+  pick it on a clock dial: choose the hour, then the minute (the keyboard icon lets you type it
+  instead). A new color, day or time shows in the calendar right away, and a new name once you
+  leave the name field, but nothing is kept until you click **Save**. To make the editor wider or narrower, drag the divider between it and the
   calendar (double-click the divider to reset it).
 - **Actions.** Pick an entity, then tick each value the block should set. The values on offer
   depend on what the entity supports.
 - **Conditions.** Add conditions and nested groups, and choose whether *all* or *any* must
-  match. Each condition shows whether it's true right now.
+  match. Each condition shows whether it's true right now. The value box suggests the entity's
+  possible values; its dropdown always lists all of them, with the ones matching what you've
+  typed at the top.
 - **Duplicate** (copy icon) copies a block to any days you pick, optionally into another tab.
 - **Eyedropper** (pipette icon): click it, then click another block to copy that block's
   name, color, actions and conditions into the one you're editing. If that would replace a name,

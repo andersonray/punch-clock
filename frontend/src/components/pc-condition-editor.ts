@@ -10,6 +10,7 @@ import {
 import { controls } from "../styles";
 import { icon, mdiDelete, mdiPlus } from "../icons";
 import "./pc-entity-picker";
+import "./pc-combobox";
 
 const OPERATORS: { value: Operator; label: string }[] = [
   { value: "is", label: "is" },
@@ -103,7 +104,6 @@ export class PcConditionEditor extends LitElement {
       attributes.unshift(condition.attribute);
     }
     const suggestions = valueSuggestions(entity, condition.attribute, this.zones());
-    const listId = `values-${condition.id}`;
     const update = (changes: Partial<Condition>) =>
       this.replaceItem(index, { ...condition, ...changes });
     const numeric = condition.operator === "gt" || condition.operator === "lt";
@@ -118,6 +118,7 @@ export class PcConditionEditor extends LitElement {
           update({ entity_id: e.detail.value, attribute: null, value: "" })}
       ></pc-entity-picker>
       <select
+        class="attr"
         aria-label="State or attribute"
         @change=${(e: Event) => update({ attribute: (e.target as HTMLSelectElement).value || null })}
       >
@@ -127,6 +128,7 @@ export class PcConditionEditor extends LitElement {
         )}
       </select>
       <select
+        class="op"
         aria-label="Comparison"
         @change=${(e: Event) => update({ operator: (e.target as HTMLSelectElement).value as Operator })}
       >
@@ -137,21 +139,18 @@ export class PcConditionEditor extends LitElement {
             </option>`,
         )}
       </select>
-      <input
+      <pc-combobox
         class="value"
-        list=${listId}
-        aria-label="Value"
+        label="Value"
         placeholder=${numeric || isNumeric(entity, condition.attribute) ? "Number" : "Value"}
         inputmode=${numeric ? "decimal" : "text"}
         .value=${condition.value}
-        @change=${(e: Event) => update({ value: (e.target as HTMLInputElement).value })}
-      />
-      <datalist id=${listId}>
-        ${suggestions.map((v) => html`<option value=${v}></option>`)}
-      </datalist>
+        .options=${suggestions}
+        @value-changed=${(e: CustomEvent<{ value: string }>) => update({ value: e.detail.value })}
+      ></pc-combobox>
       ${this.resultChip(condition.id)}
       <button
-        class="icon-btn small"
+        class="icon-btn small remove"
         aria-label="Remove condition"
         title="Remove condition"
         @click=${() => this.replaceItem(index, null)}
@@ -247,6 +246,8 @@ export class PcConditionEditor extends LitElement {
         display: flex;
         flex-direction: column;
         gap: 6px;
+        /* Lay out condition rows by the editor's width, not the window's. */
+        container-type: inline-size;
       }
       :host(.nested) {
         padding: 8px 0 4px 12px;
@@ -266,17 +267,37 @@ export class PcConditionEditor extends LitElement {
       .condition {
         display: grid;
         grid-template-columns:
-          minmax(160px, 2fr) minmax(90px, 1fr) minmax(110px, 1fr) minmax(90px, 1fr)
+          minmax(150px, 2fr) minmax(80px, 1fr) minmax(100px, 1fr) minmax(90px, 1fr)
           auto auto;
+        grid-template-areas: "entity attr op value chip remove";
         gap: 6px;
         align-items: start;
       }
-      .condition > select,
-      .condition > input {
+      .condition > * {
+        min-width: 0;
+      }
+      .condition > select {
         width: 100%;
       }
-      .condition .chip {
+      .entity {
+        grid-area: entity;
+      }
+      .attr {
+        grid-area: attr;
+      }
+      .op {
+        grid-area: op;
+      }
+      .value {
+        grid-area: value;
+      }
+      .condition > .chip {
+        grid-area: chip;
         margin-top: 8px;
+        justify-self: start;
+      }
+      .remove {
+        grid-area: remove;
       }
       .empty {
         font-size: 0.9em;
@@ -286,14 +307,16 @@ export class PcConditionEditor extends LitElement {
         display: flex;
         gap: 4px;
       }
-      @media (max-width: 720px) {
+      /* Narrow (e.g. the default-width editor): entity on its own line, then the rest. */
+      @container (max-width: 640px) {
         .condition {
-          grid-template-columns: 1fr 1fr auto auto;
+          grid-template-columns: 1fr 1fr auto;
+          grid-template-areas:
+            "entity entity remove"
+            "attr op chip"
+            "value value .";
           padding-bottom: 8px;
           border-bottom: 1px dashed var(--pc-divider);
-        }
-        .condition .entity {
-          grid-column: 1 / -1;
         }
       }
     `,

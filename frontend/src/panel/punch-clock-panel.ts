@@ -214,17 +214,16 @@ export class PunchClockPanel extends LitElement {
     return this.unitsCache;
   }
 
-  /** The config shown in the calendar: saved data plus the editor's unsaved name/color. */
+  /** The config shown in the calendar: saved data plus the editor's unsaved changes. */
   private viewConfig(config: Config): Config {
     const preview = this._preview;
     if (!preview || preview.blockId !== this._selectedId) return config;
     const cache = this.viewCache;
     if (cache && cache.config === config && cache.preview === preview) return cache.result;
+    const { blockId, ...changes } = preview;
     const result = {
       ...config,
-      blocks: config.blocks.map((b) =>
-        b.id === preview.blockId ? { ...b, name: preview.name, color: preview.color } : b,
-      ),
+      blocks: config.blocks.map((b) => (b.id === blockId ? { ...b, ...changes } : b)),
     };
     this.viewCache = { config, preview, result };
     return result;
@@ -232,7 +231,13 @@ export class PunchClockPanel extends LitElement {
 
   private setPreview(preview: BlockPreview): void {
     const saved = this._config?.blocks.find((b) => b.id === preview.blockId);
-    const unchanged = saved && saved.name === preview.name && saved.color === preview.color;
+    const unchanged =
+      saved &&
+      saved.name === preview.name &&
+      saved.color === preview.color &&
+      saved.day === preview.day &&
+      saved.start === preview.start &&
+      saved.duration === preview.duration;
     this._preview = unchanged ? null : preview;
   }
 

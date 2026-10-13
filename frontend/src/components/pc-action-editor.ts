@@ -16,6 +16,7 @@ import {
 import { controls } from "../styles";
 import { icon, mdiDelete } from "../icons";
 import "./pc-entity-picker";
+import "./pc-combobox";
 
 const toHex = (rgb: number[]): string =>
   `#${rgb.map((c) => Math.round(c).toString(16).padStart(2, "0")).join("")}`;
@@ -259,18 +260,15 @@ export class PcActionEditor extends LitElement {
     const dataText = this._dataText ?? JSON.stringify(action.data, null, 2);
     return html`
       <div class="row top">
-        <input
+        <pc-combobox
           class="grow"
-          list="pc-services"
+          label="Service"
           placeholder="Service, e.g. script.turn_on"
-          aria-label="Service"
           .value=${action.service}
-          @change=${(e: Event) =>
-            this.emit({ ...action, service: (e.target as HTMLInputElement).value.trim() })}
-        />
-        <datalist id="pc-services">
-          ${services.map((s) => html`<option value=${s}></option>`)}
-        </datalist>
+          .options=${services}
+          @value-changed=${(e: CustomEvent<{ value: string }>) =>
+            this.emit({ ...action, service: e.detail.value.trim() })}
+        ></pc-combobox>
         ${this.renderRemove()}
       </div>
       <div class="targets">

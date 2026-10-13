@@ -169,6 +169,28 @@ const weekView = () => shadow(el).querySelector("pc-week-view")!;
 const blocks = () => [...shadow(weekView()).querySelectorAll<HTMLButtonElement>(".block")];
 const editor = () => shadow(el).querySelector("pc-block-editor") as PcBlockEditor | null;
 
+const timeInputs = (ed: Element) => [...shadow(ed).querySelectorAll("pc-time-input")];
+
+const headerText = (picker: Element) =>
+  [...shadow(picker).querySelectorAll(".seg")].map((b) => b.textContent?.trim());
+
+const buttonNamed = (root: Element, name: string) =>
+  [...shadow(root).querySelectorAll<HTMLButtonElement>("button")].find(
+    (b) => b.textContent?.trim() === name,
+  )!;
+
+/** Press and release on the picker's dial at a point in its 256x256 viewBox. */
+function tapDial(picker: Element, x: number, y: number): void {
+  const dial = shadow(picker).querySelector(".dial")!;
+  dial.getBoundingClientRect = () =>
+    ({ left: 0, top: 0, right: 256, bottom: 256, width: 256, height: 256 }) as DOMRect;
+  for (const type of ["pointerdown", "pointerup"]) {
+    dial.dispatchEvent(
+      new PointerEvent(type, { clientX: x, clientY: y, button: 0, pointerId: 1, bubbles: true }),
+    );
+  }
+}
+
 beforeAll(async () => {
   await import("../src/main");
 });
@@ -375,36 +397,131 @@ describe("punch-clock-panel", () => {
     expect(pane().getAttribute("style")).toContain("--editor-width:372px");
   });
 
-  it("edits start and stop times in the chosen clock style", async () => {
+  it("picks a time on the 24-hour clock dial", async () => {
     await mount((config) => (config.settings.time_format = "24"));
     blocks()
       .find((b) => b.textContent?.includes("Morning"))!
       .click();
     await settle(el);
     const ed = editor()!;
-    const [start, stop] = [...shadow(ed).querySelectorAll("pc-time-input")].map((t) =>
-      shadow(t).querySelector("input")!,
-    );
-    expect(start!.value).toBe("06:00");
-    expect(stop!.value).toBe("08:00");
+    const [start] = timeInputs(ed);
+    const field = shadow(start).querySelector<HTMLButtonElement>(".field")!;
+    expect(field.textContent).toContain("06:00");
 
-    start!.value = "6:15 pm";
-    start!.dispatchEvent(new Event("change"));
+    field.click();
     await settle(el);
-    expect(ed._draft.start).toBe(1095);
-    expect(start!.value).toBe("18:15");
-    // The stop time stays 08:00, so the block now runs past midnight.
-    expect(ed._draft.duration).toBe(825);
+    const picker = shadow(start).querySelector("pc-time-picker")!;
+    expect(picker.open).toBe(true);
+    expect(headerText(picker)).toEqual(["06", "00"]);
+    expect(shadow(picker).querySelector(".ampm")).toBeNull(); // no AM/PM in 24-hour mode
+    expect(shadow(picker).querySelectorAll("text.inner")).toHaveLength(12);
 
-    stop!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", shiftKey: true }));
+    // 3 o'clock on the inner ring is 15; releasing switches to minutes.
+    tapDial(picker, 128 + 62, 128);
     await settle(el);
-    expect(ed._draft.duration).toBe(840);
+    expect(headerText(picker)).toEqual(["15", "00"]);
+    expect(shadow(picker).querySelector(".dial")!.getAttribute("aria-label")).toBe("Minute");
+    tapDial(picker, 128, 228); // 6 o'clock = 30 minutes
+    await settle(el);
+    expect(headerText(picker)).toEqual(["15", "30"]);
 
-    start!.value = "25:00";
-    start!.dispatchEvent(new Event("change"));
+    buttonNamed(picker, "OK").click();
     await settle(el);
-    expect(ed._draft.start).toBe(1095);
-    expect(start!.getAttribute("aria-invalid")).toBe("true");
+    expect(picker.open).toBe(false);
+    expect(ed._draft.start).toBe(930);
+    expect(ed._draft.duration).toBe(990); // the stop time stays 08:00, now the next day
+    expect(field.textContent).toContain("15:30");
+  });
+
+  it("uses AM/PM on the 12-hour dial and accepts typed times", async () => {
+    await mount((config) => (config.settings.time_format = "12"));
+    blocks()
+      .find((b) => b.textContent?.includes("Morning"))!
+      .click();
+    await settle(el);
+    const ed = editor()!;
+    const [start, stop] = timeInputs(ed);
+
+    shadow(stop).querySelector<HTMLButtonElement>(".field")!.click();
+    await settle(el);
+    let picker = shadow(stop).querySelector("pc-time-picker")!;
+    expect(headerText(picker)).toEqual(["8", "00"]);
+    expect(shadow(picker).querySelectorAll("text.inner")).toHaveLength(0);
+    buttonNamed(picker, "PM").click();
+    buttonNamed(picker, "OK").click();
+    await settle(el);
+    expect(ed._draft.duration).toBe(840); // 6:00 AM to 8:00 PM
+
+    shadow(start).querySelector<HTMLButtonElement>(".field")!.click();
+    await settle(el);
+    picker = shadow(start).querySelector("pc-time-picker")!;
+    shadow(picker).querySelector<HTMLButtonElement>('[aria-label="Type the time"]')!.click();
+    await settle(el);
+    const typeInto = (label: string, value: string) => {
+      const input = shadow(picker).querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+      input.value = value;
+      input.dispatchEvent(new Event("input"));
+    };
+    typeInto("Hour", "13");
+    await settle(el);
+    buttonNamed(picker, "OK").click();
+    await settle(el);
+    expect(picker.open).toBe(true);
+    expect(shadow(picker).querySelector(".error-text")?.textContent).toContain("1–12");
+
+    typeInto("Hour", "7");
+    typeInto("Minute", "45");
+    await settle(el);
+    buttonNamed(picker, "OK").click();
+    await settle(el);
+    expect(picker.open).toBe(false);
+    expect(ed._draft.start).toBe(465); // 7:45 AM
+    expect(ed._draft.duration).toBe(735); // still ends at 8:00 PM
+
+    // Cancel leaves the time alone.
+    shadow(start).querySelector<HTMLButtonElement>(".field")!.click();
+    await settle(el);
+    tapDial(picker, 228, 128);
+    await settle(el);
+    buttonNamed(picker, "Cancel").click();
+    await settle(el);
+    expect(ed._draft.start).toBe(465);
+  });
+
+  it("moves the block in the calendar as soon as its day or times change", async () => {
+    await mount();
+    blocks()
+      .find((b) => b.textContent?.includes("Target"))!
+      .click();
+    await settle(el);
+    const ed = editor()!;
+    const column = (i: number) =>
+      [...shadow(weekView()).querySelectorAll(".col")][i]!.textContent ?? "";
+    // The week starts on Sunday, so Wednesday is column 3 and Friday column 5.
+    expect(column(3)).toContain("Target");
+
+    const day = shadow(ed).querySelector<HTMLSelectElement>("select")!;
+    day.value = "4";
+    day.dispatchEvent(new Event("change"));
+    await settle(el);
+    expect(column(3)).not.toContain("Target");
+    expect(column(5)).toContain("Target");
+
+    const [start] = timeInputs(ed);
+    shadow(start)
+      .querySelector(".field")!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", shiftKey: true }));
+    await settle(el);
+    const moved = blocks().find((b) => b.textContent?.includes("Target"))!;
+    expect(moved.getAttribute("style")).toContain("top:492px"); // 10:15 at 48 px per hour
+    expect(fake.calls.some((c) => c.type === "punch_clock/blocks/update")).toBe(false);
+
+    [...shadow(ed).querySelectorAll("button")]
+      .find((b) => b.textContent?.trim() === "Discard")!
+      .click();
+    await settle(el);
+    expect(column(3)).toContain("Target");
+    expect(column(5)).not.toContain("Target");
   });
 
   it("uses the clock setting for times", async () => {

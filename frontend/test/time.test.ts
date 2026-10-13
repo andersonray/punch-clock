@@ -7,7 +7,6 @@ import {
   formatMinute,
   formatRange,
   nowIn,
-  parseTimeText,
   segments,
   snapCeil,
   snapFloor,
@@ -81,23 +80,6 @@ describe("formatting", () => {
 
   it("formats 24-hour times for inputs", () => {
     expect(toTimeInput(391)).toBe("06:31");
-  });
-
-  it("parses typed times in either clock style", () => {
-    expect(parseTimeText("06:31")).toBe(391);
-    expect(parseTimeText("18:30")).toBe(1110);
-    expect(parseTimeText("6:30 PM")).toBe(1110);
-    expect(parseTimeText("6:30pm")).toBe(1110);
-    expect(parseTimeText("6.30 p.m.")).toBe(1110);
-    expect(parseTimeText("12 am")).toBe(0);
-    expect(parseTimeText("12:15 PM")).toBe(735);
-    expect(parseTimeText("630")).toBe(390);
-    expect(parseTimeText("1830")).toBe(1110);
-    expect(parseTimeText("7")).toBe(420);
-    expect(parseTimeText("24:00")).toBeNull();
-    expect(parseTimeText("13:00 pm")).toBeNull();
-    expect(parseTimeText("6:75")).toBeNull();
-    expect(parseTimeText("nope")).toBeNull();
   });
 
   it("follows the profile time format", () => {

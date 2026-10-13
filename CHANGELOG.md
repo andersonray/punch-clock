@@ -20,5 +20,9 @@ First version.
   Assistant's unit when written; Celsius by default), and a 12- or 24-hour clock (by default,
   the one in your Home Assistant profile).
 - Drag the divider between the calendar and the block editor to resize the editor.
-- A new block color shows in the calendar right away, and a new name once you leave the name
-  field, before you save.
+- A new block color, day or time shows in the calendar right away, and a new name once you
+  leave the name field, before you save.
+- Start and stop times are picked on a clock dial, like Android's: 12-hour with AM/PM, or
+  24-hour with an inner ring for 00 and 13-23. You can also type them.
+- The dropdown of suggested condition values always lists every value, with values matching
+  what you've typed at the top.
