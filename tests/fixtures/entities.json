@@ -93,7 +93,7 @@
       "is_volume_muted": false,
       "source": "Radio",
       "source_list": ["Radio", "TV", "Bluray"],
-      "supported_features": 22463
+      "supported_features": 24511
     }
   },
   "water_heater.demo": {
