@@ -1,5 +1,3 @@
-from builders import act, all_of, block, cond, config, hm, lookup, svc, tab, wm
-
 from logic.resolver import (
     Source,
     block_values,
@@ -10,6 +8,8 @@ from logic.resolver import (
     resolve,
     service_key,
 )
+
+from builders import act, all_of, block, cond, config, hm, lookup, svc, tab, wm
 
 NO_STATES = lookup({})
 T = "climate.house"

@@ -8,4 +8,5 @@ cd "$REPO"
 
 "$VENV/bin/ruff" format --check .
 "$VENV/bin/ruff" check .
-"$VENV/bin/mypy" custom_components/punch_clock/logic
+# Type-check logic/ as a standalone package so mypy doesn't follow the HA layer.
+(cd custom_components/punch_clock && "$VENV/bin/mypy" --config-file ../../pyproject.toml -p logic)

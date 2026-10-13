@@ -1,6 +1,6 @@
-from builders import act, all_of, any_of, block, cond, config, svc, tab
-
 from logic.refs import entity_references, rename_entity
+
+from builders import act, all_of, any_of, block, cond, config, svc, tab
 
 
 def sample():  # type: ignore[no-untyped-def]

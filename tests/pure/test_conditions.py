@@ -1,7 +1,8 @@
 import pytest
-from builders import all_of, any_of, cond, lookup
 
 from logic.conditions import evaluate, evaluate_condition, explain, referenced
+
+from builders import all_of, any_of, cond, lookup
 
 STATES = lookup(
     {

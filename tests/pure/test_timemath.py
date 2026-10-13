@@ -2,7 +2,6 @@ from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
-from builders import block, hm, wm
 
 from logic.timemath import (
     boundaries,
@@ -13,6 +12,8 @@ from logic.timemath import (
     wall_to_utc,
     week_minute,
 )
+
+from builders import block, hm, wm
 
 NY = ZoneInfo("America/New_York")
 LONDON = ZoneInfo("Europe/London")

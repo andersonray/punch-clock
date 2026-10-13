@@ -50,6 +50,11 @@ def _bump(config: Config, **changes: Any) -> Config:
     return replace(config, revision=config.revision + 1, **changes)
 
 
+def bump(config: Config) -> Config:
+    """Mark an externally edited config (e.g. renamed entities) as a new revision."""
+    return _bump(config)
+
+
 def _tab(config: Config, tab_id: str) -> Tab:
     tab = config.tab(tab_id)
     if tab is None:
