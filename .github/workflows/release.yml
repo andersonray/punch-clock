@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Tag matches manifest version
+        run: |
+          version="$(jq -r .version custom_components/punch_clock/manifest.json)"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} doesn't match manifest version ${version}" >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the panel
+        working-directory: frontend
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+
+      - name: Zip the integration
+        working-directory: custom_components/punch_clock
+        run: zip -r "${GITHUB_WORKSPACE}/punch_clock.zip" . -x "*/__pycache__/*" "*.pyc"
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" punch_clock.zip --clobber

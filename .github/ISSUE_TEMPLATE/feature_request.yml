@@ -1,0 +1,15 @@
+name: Feature request
+description: Suggest an idea for Punch Clock
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to do?
+      description: Describe the scheduling problem you're trying to solve.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could Punch Clock help?

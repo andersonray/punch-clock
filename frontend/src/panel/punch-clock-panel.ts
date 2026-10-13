@@ -601,6 +601,19 @@ export class PunchClockPanel extends LitElement {
         font-size: 0.95em;
         padding: 0 6px;
       }
+      /* The header uses the primary color, so the switch is drawn in header colors. */
+      .toolbar .switch span {
+        background: color-mix(in srgb, var(--pc-header-text) 30%, transparent);
+      }
+      .toolbar .switch span::before {
+        background: var(--pc-header-text);
+      }
+      .toolbar .switch input:checked + span {
+        background: var(--pc-header-text);
+      }
+      .toolbar .switch input:checked + span::before {
+        background: var(--pc-header-bg);
+      }
       .icon-btn.warn {
         color: var(--pc-warning);
       }

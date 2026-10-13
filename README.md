@@ -3,7 +3,9 @@
 A weekly scheduler for [Home Assistant](https://www.home-assistant.io/) that sets entity values on
 a calendar.
 
-> **Status:** early development. Not ready for use yet.
+> **Status:** first version (0.1.0), in testing.
+
+![The Punch Clock week calendar with the block editor open](docs/images/screenshot.png)
 
 ## What it does
 
@@ -45,6 +47,32 @@ rules are in [docs/semantics.md](docs/semantics.md).
 3. Restart Home Assistant and add the integration as described above.
 
 Requires Home Assistant 2026.3 or newer.
+
+## Using it
+
+Open **Punch Clock** in the sidebar.
+
+- **Create a block.** With a mouse, drag down a day column. On a touch screen, press and hold,
+  then drag. The **+ Block** button adds a one-hour block at the next full hour. Each day column
+  keeps a strip on its right free, so you can always drag out a new block next to existing ones.
+- **Edit a block.** Click it. The editor sets the name, color, day, start and stop times (a stop
+  earlier than the start ends the next day), actions and conditions. Click **Save** to keep your
+  changes.
+- **Actions.** Pick an entity, then tick each value the block should set. The values on offer
+  depend on what the entity supports.
+- **Conditions.** Add conditions and nested groups, and choose whether *all* or *any* must
+  match. Each condition shows whether it's true right now.
+- **Duplicate** (copy icon) copies a block to any days you pick, optionally into another tab.
+- **Eyedropper** (pipette icon): click it, then click another block to copy that block's
+  actions and conditions into the one you're editing. If that would replace what's already
+  there, it asks you first. Press Esc to cancel.
+- **Tabs.** Use **+** to add a tab. The **⋮** menu edits the tab's name, conditions and default
+  values, turns it on or off, reorders it, or deletes it. You can also drag tabs to reorder
+  them. The dot on each tab is green while the tab is active.
+- **Settings** (gear icon): first day of the week, hour height, and a list of recent problems.
+
+Each tab gets `switch.punch_clock_<tab>_enabled` and `binary_sensor.punch_clock_<tab>_active`.
+`switch.punch_clock_enabled` pauses all scheduling.
 
 ## Development
 
