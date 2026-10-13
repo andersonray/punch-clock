@@ -547,11 +547,20 @@ describe("punch-clock-panel", () => {
     );
   });
 
-  it("fades every block when the tab isn't running", async () => {
+  it("hatches every block when the tab isn't running, with the icon only for unmet ones", async () => {
     await mount(undefined, (status) => {
-      status.tabs.t_1 = { enabled: true, conditions_met: false, active: false };
+      status.tabs.t_1 = { enabled: false, conditions_met: true, active: false };
+      status.blocks = {
+        b_morning: { in_window: false, conditions_met: false, active: false },
+        b_target: { in_window: false, conditions_met: true, active: false },
+      };
     });
     expect(shadow(weekView()).querySelector(".scroller")!.classList.contains("tab-off")).toBe(true);
+    const morning = blocks().find((b) => b.textContent?.includes("Morning"))!;
+    const target = blocks().find((b) => b.textContent?.includes("Target"))!;
+    expect(morning.querySelector(".unmet-badge")).not.toBeNull();
+    expect(target.querySelector(".unmet-badge")).toBeNull(); // would run if the tab were on
+    expect(target.getAttribute("aria-label")).toContain("its tab isn't running");
   });
 
   it("offers to save unsaved changes when leaving a block", async () => {

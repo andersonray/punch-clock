@@ -340,6 +340,7 @@ export class PcWeekView extends LitElement {
     const notes = [
       state?.active ? "running now" : "",
       unmet ? "conditions not met right now, so it won't run" : "",
+      this.tabInactive() ? "its tab isn't running" : "",
       conflicts?.length ? "conflicts with another block" : "",
       missing ? "uses an entity that doesn't exist" : "",
     ].filter(Boolean);
@@ -589,9 +590,14 @@ export class PcWeekView extends LitElement {
         background: color-mix(in srgb, var(--block-color) 42%, var(--pc-card));
         box-shadow: inset 0 0 0 1px var(--block-color);
       }
-      /* Conditions not met: hatched (plus the badge); kept on hover, which resets background. */
+      /*
+       * Hatched = won't run right now: its own conditions aren't met (those also get the
+       * badge), or its whole tab isn't running. Kept on hover, which resets background.
+       */
       .block.unmet,
-      .block.unmet:hover {
+      .block.unmet:hover,
+      .tab-off .block,
+      .tab-off .block:hover {
         background-image: repeating-linear-gradient(
           135deg,
           transparent 0 5px,
@@ -600,10 +606,6 @@ export class PcWeekView extends LitElement {
       }
       .badges .unmet-badge {
         color: var(--pc-warning);
-      }
-      /* The whole tab isn't running (turned off, or its conditions are false). */
-      .tab-off .block:not(.selected) {
-        opacity: 0.6;
       }
       .block.selected {
         outline: 2px solid var(--block-color);
