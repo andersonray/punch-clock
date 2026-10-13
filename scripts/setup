@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Create the Python dev environment (Linux, WSL or devcontainer).
+# The venv lives outside the repo so it stays on a native Linux filesystem.
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV="${PUNCH_CLOCK_VENV:-$HOME/.venvs/punch-clock}"
+UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
+
+"$UV" venv --python 3.14 --allow-existing "$VENV"
+"$UV" pip install --python "$VENV/bin/python" -r "$REPO/requirements_dev.txt"
+
+echo "Python dev environment ready: $VENV"

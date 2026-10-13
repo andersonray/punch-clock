@@ -1,0 +1,142 @@
+{
+  "climate.ecobee": {
+    "state": "heat_cool",
+    "attributes": {
+      "hvac_modes": ["off", "heat", "cool", "heat_cool", "auto"],
+      "min_temp": 45,
+      "max_temp": 95,
+      "target_temp_step": 1,
+      "fan_modes": ["auto", "on"],
+      "preset_modes": ["home", "away", "sleep"],
+      "current_temperature": 71,
+      "temperature": null,
+      "target_temp_low": 68,
+      "target_temp_high": 75,
+      "fan_mode": "auto",
+      "preset_mode": "home",
+      "supported_features": 410
+    }
+  },
+  "climate.hvac": {
+    "state": "cool",
+    "attributes": {
+      "hvac_modes": ["off", "heat", "cool", "auto", "dry", "fan_only"],
+      "min_temp": 7,
+      "max_temp": 35,
+      "target_temp_step": 0.5,
+      "fan_modes": ["on_low", "on_high", "auto_low", "auto_high", "off"],
+      "swing_modes": ["auto", "1", "2", "3", "off"],
+      "humidity": 67,
+      "min_humidity": 30,
+      "max_humidity": 99,
+      "current_temperature": 22,
+      "temperature": 21,
+      "fan_mode": "on_high",
+      "swing_mode": "off",
+      "supported_features": 425
+    }
+  },
+  "light.living_room": {
+    "state": "on",
+    "attributes": {
+      "supported_color_modes": ["color_temp", "hs"],
+      "color_mode": "color_temp",
+      "brightness": 180,
+      "color_temp_kelvin": 3000,
+      "min_color_temp_kelvin": 2000,
+      "max_color_temp_kelvin": 6500,
+      "rgb_color": [255, 167, 87],
+      "effect_list": ["rainbow", "none"],
+      "effect": "none",
+      "supported_features": 4
+    }
+  },
+  "light.porch": {
+    "state": "off",
+    "attributes": {
+      "supported_color_modes": ["brightness"],
+      "color_mode": null,
+      "brightness": null,
+      "supported_features": 0
+    }
+  },
+  "fan.ceiling": {
+    "state": "on",
+    "attributes": {
+      "percentage": 66,
+      "percentage_step": 33.333333333333336,
+      "preset_mode": null,
+      "preset_modes": ["auto", "smart", "sleep", "on"],
+      "oscillating": false,
+      "direction": "forward",
+      "supported_features": 63
+    }
+  },
+  "cover.living_room_window": {
+    "state": "open",
+    "attributes": {
+      "current_position": 70,
+      "current_tilt_position": 50,
+      "supported_features": 255
+    }
+  },
+  "cover.garage_door": {
+    "state": "closed",
+    "attributes": {
+      "supported_features": 3
+    }
+  },
+  "media_player.living_room": {
+    "state": "playing",
+    "attributes": {
+      "volume_level": 1.0,
+      "is_volume_muted": false,
+      "source": "Radio",
+      "source_list": ["Radio", "TV", "Bluray"],
+      "supported_features": 22463
+    }
+  },
+  "water_heater.demo": {
+    "state": "eco",
+    "attributes": {
+      "min_temp": 110,
+      "max_temp": 140,
+      "operation_list": ["eco", "electric", "performance", "off"],
+      "operation_mode": "eco",
+      "temperature": 119,
+      "away_mode": "off",
+      "supported_features": 15
+    }
+  },
+  "humidifier.dehumidifier": {
+    "state": "on",
+    "attributes": {
+      "min_humidity": 0,
+      "max_humidity": 100,
+      "available_modes": ["normal", "eco", "away", "boost"],
+      "mode": "normal",
+      "humidity": 54,
+      "supported_features": 1
+    }
+  },
+  "number.volume": {
+    "state": "42.0",
+    "attributes": { "min": 0, "max": 100, "step": 1 }
+  },
+  "input_number.setpoint": {
+    "state": "68.5",
+    "attributes": { "min": 50, "max": 85, "step": 0.5 }
+  },
+  "select.speed": {
+    "state": "light_speed",
+    "attributes": { "options": ["light_speed", "ridiculous_speed", "ludicrous_speed"] }
+  },
+  "lock.front_door": {
+    "state": "locked",
+    "attributes": { "supported_features": 1 }
+  },
+  "switch.decorative_lights": {
+    "state": "on",
+    "attributes": {}
+  }
+}
