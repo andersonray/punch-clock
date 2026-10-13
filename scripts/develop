@@ -16,4 +16,13 @@ if [[ ! -f "$REPO/custom_components/punch_clock/frontend/punch-clock-panel.js" ]
   echo "warning: frontend bundle missing; run 'npm run build' (or 'npm run watch') in frontend/" >&2
 fi
 
-exec "$VENV/bin/hass" --config "$CONFIG" --debug "$@"
+# Home Assistant exits with code 100 when asked to restart (Settings > Restart).
+# Start it again, as a supervisor would; any other exit ends the script.
+while true; do
+  "$VENV/bin/hass" --config "$CONFIG" --debug "$@" && exit 0
+  code=$?
+  if [[ $code -ne 100 ]]; then
+    exit "$code"
+  fi
+  echo "Home Assistant asked to restart; starting it again." >&2
+done

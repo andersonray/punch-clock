@@ -59,7 +59,8 @@ the `demo` integration, which provides entities for every supported domain, plus
 
 On the first run, finish Home Assistant onboarding. Then add the integration under
 **Settings → Devices & services → Add integration → Punch Clock**. After you change Python
-code, restart `scripts/develop`. After a frontend rebuild, a browser refresh is enough.
+code, restart Home Assistant (**Settings → System → Restart**; `scripts/develop` starts it again)
+or restart `scripts/develop`. After a frontend rebuild, a browser refresh is enough.
 
 ## Testing on a real Home Assistant
 

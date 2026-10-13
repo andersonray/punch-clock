@@ -53,7 +53,8 @@ npm run build      # -> custom_components/punch_clock/frontend/punch-clock-panel
 npm run watch      # rebuild on change; refresh the browser (no HA restart needed)
 ```
 
-Python changes need a dev HA restart. The dev instance's config lives in `~/.punch-clock-dev/config`
+Python changes need a dev HA restart. HA's own Restart works, because `scripts/develop` starts
+`hass` again when it exits with code 100. The dev instance's config lives in `~/.punch-clock-dev/config`
 (override with `PUNCH_CLOCK_HA_CONFIG`) and symlinks back to this repo. **The user also uses this
 instance:** never delete or reset tabs, blocks or settings that a script didn't create itself.
 
