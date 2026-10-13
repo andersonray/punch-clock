@@ -1,0 +1,33 @@
+name: Bug report
+description: Something in Punch Clock doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we reproduce it?
+      description: The blocks, conditions and entities involved, and what you did.
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Punch Clock version and Home Assistant version.
+      placeholder: Punch Clock 0.1.0, Home Assistant 2026.10.1
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics and logs
+      description: >-
+        Download diagnostics from Settings → Devices & services → Punch Clock → ⋮ → Download
+        diagnostics, and paste relevant log lines (enable debug logging for
+        custom_components.punch_clock).
+      render: text

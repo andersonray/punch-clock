@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Lint and type-check the Python code.
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV="${PUNCH_CLOCK_VENV:-$HOME/.venvs/punch-clock}"
+cd "$REPO"
+
+"$VENV/bin/ruff" format --check .
+"$VENV/bin/ruff" check .
+# Type-check logic/ as a standalone package so mypy doesn't follow the HA layer.
+(cd custom_components/punch_clock && "$VENV/bin/mypy" --config-file ../../pyproject.toml -p logic)

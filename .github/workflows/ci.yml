@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    env:
+      PUNCH_CLOCK_VENV: ${{ github.workspace }}/.venv
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.14"
+      - name: Install
+        run: scripts/setup
+      - name: Lint and type-check
+        run: scripts/lint
+      - name: Pure logic tests
+        run: .venv/bin/python -m pytest tests/pure -q
+      - name: Home Assistant tests
+        run: .venv/bin/python -m pytest tests/ha -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Bundle is a single file
+        run: test "$(ls ../custom_components/punch_clock/frontend | wc -l)" -eq 1

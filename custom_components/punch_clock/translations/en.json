@@ -1,0 +1,41 @@
+{
+  "config": {
+    "abort": {
+      "single_instance_allowed": "Punch Clock is already set up."
+    },
+    "step": {
+      "user": {
+        "title": "Punch Clock",
+        "description": "Punch Clock adds a weekly calendar to the sidebar. Use it to schedule entity values, such as thermostat temperatures or light brightness."
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Punch Clock options",
+        "data": {
+          "sidebar_title": "Sidebar title",
+          "sidebar_icon": "Sidebar icon",
+          "require_admin": "Only administrators can use Punch Clock"
+        },
+        "data_description": {
+          "require_admin": "When this is off, every user can see and edit the schedules."
+        }
+      }
+    }
+  },
+  "entity": {
+    "switch": {
+      "enabled": {
+        "name": "Enabled"
+      }
+    }
+  },
+  "issues": {
+    "write_budget": {
+      "title": "Punch Clock paused writes to {target}",
+      "description": "Punch Clock changed {target} more than 6 times in 10 minutes, so it stopped writing to it for 10 minutes. This usually means a block's conditions keep switching between true and false, for example because a condition checks an entity that the same schedule controls. Review the conditions in the Punch Clock panel."
+    }
+  }
+}

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Run a local Home Assistant with Punch Clock loaded, at http://localhost:8123.
+# The HA config dir lives outside the repo (SQLite is slow on /mnt drives) and
+# symlinks back to the repo's integration and configuration.yaml.
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV="${PUNCH_CLOCK_VENV:-$HOME/.venvs/punch-clock}"
+CONFIG="${PUNCH_CLOCK_HA_CONFIG:-$HOME/.punch-clock-dev/config}"
+
+mkdir -p "$CONFIG/custom_components"
+ln -sfn "$REPO/custom_components/punch_clock" "$CONFIG/custom_components/punch_clock"
+ln -sfn "$REPO/dev/config/configuration.yaml" "$CONFIG/configuration.yaml"
+
+if [[ ! -f "$REPO/custom_components/punch_clock/frontend/punch-clock-panel.js" ]]; then
+  echo "warning: frontend bundle missing; run 'npm run build' (or 'npm run watch') in frontend/" >&2
+fi
+
+# Home Assistant exits with code 100 when asked to restart (Settings > Restart).
+# Start it again, as a supervisor would; any other exit ends the script.
+while true; do
+  "$VENV/bin/hass" --config "$CONFIG" --debug "$@" && exit 0
+  code=$?
+  if [[ $code -ne 100 ]]; then
+    exit "$code"
+  fi
+  echo "Home Assistant asked to restart; starting it again." >&2
+done

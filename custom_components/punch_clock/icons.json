@@ -1,0 +1,12 @@
+{
+  "entity": {
+    "switch": {
+      "enabled": {
+        "default": "mdi:calendar-clock",
+        "state": {
+          "off": "mdi:calendar-remove"
+        }
+      }
+    }
+  }
+}

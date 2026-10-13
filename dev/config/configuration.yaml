@@ -1,0 +1,33 @@
+# Local development instance for Punch Clock (see docs/development.md).
+default_config:
+
+# Demo entities for every supported domain (climate, light, fan, cover, ...).
+demo:
+
+logger:
+  default: info
+  logs:
+    custom_components.punch_clock: debug
+
+# Helpers for testing conditions and tab activation.
+input_boolean:
+  vacation:
+    name: Vacation
+  guests:
+    name: Guests
+
+input_select:
+  house_mode:
+    name: House mode
+    options:
+      - Home
+      - Away
+      - Night
+
+input_number:
+  setpoint:
+    name: Setpoint
+    min: 50
+    max: 85
+    step: 0.5
+    unit_of_measurement: "°F"
