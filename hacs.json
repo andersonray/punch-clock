@@ -1,0 +1,8 @@
+{
+  "name": "Punch Clock",
+  "filename": "punch_clock.zip",
+  "hide_default_branch": true,
+  "homeassistant": "2026.3.0",
+  "render_readme": true,
+  "zip_release": true
+}

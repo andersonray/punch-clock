@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Node / frontend
+node_modules/
+frontend/coverage/
+
+# Build output (the release workflow builds and zips it)
+custom_components/punch_clock/frontend/
+dist/
+*.zip
+
+# Local Home Assistant dev instance
+dev/config/*
+!dev/config/configuration.yaml
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
