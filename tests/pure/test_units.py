@@ -1,6 +1,12 @@
 import pytest
 
-from logic.units import convert_config, convert_settings, convert_temperature, convert_value
+from logic.units import (
+    convert_config,
+    convert_desired,
+    convert_settings,
+    convert_temperature,
+    convert_value,
+)
 
 from builders import act, block, config, svc, tab
 
@@ -40,3 +46,21 @@ def test_convert_config_round_trips() -> None:
     back = convert_config(celsius, "°C", "°F")
     assert back.blocks[0].actions[0].settings == {"temperature": 70.0}  # type: ignore[union-attr]
     assert convert_config(cfg, "°C", "°C") is cfg
+
+
+def test_convert_desired_matches_the_converted_config() -> None:
+    cfg = config(
+        blocks=(block("b", actions=(act("climate.x", temperature=71, hvac_mode="heat"),)),)
+    )
+    desired = {
+        ("climate.x", "temperature"): 71,
+        ("climate.x", "hvac_mode"): "heat",
+        ("climate.x", "temp_range"): {"low": 68, "high": 77},
+        ("service:script.turn_on", "call"): {"service": "script.turn_on"},
+    }
+    converted = convert_desired(desired, "°F", "°C")
+    stored = convert_config(cfg, "°F", "°C").blocks[0].actions[0].settings  # type: ignore[union-attr]
+    assert converted[("climate.x", "temperature")] == stored["temperature"] == 21.7
+    assert converted[("climate.x", "temp_range")] == {"low": 20.0, "high": 25.0}
+    assert converted[("climate.x", "hvac_mode")] == "heat"
+    assert converted[("service:script.turn_on", "call")] == {"service": "script.turn_on"}

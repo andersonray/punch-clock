@@ -16,6 +16,11 @@
 - `punch_clock/blocks/update_many` and `punch_clock/blocks/delete_many` WebSocket commands, which
   change several blocks in one revision.
 
+### Fixed
+
+- Changing the temperature unit no longer re-sends the temperatures of running blocks, which
+  undid manual changes.
+
 ## 0.1.0 (2026-10-13)
 
 First version.
