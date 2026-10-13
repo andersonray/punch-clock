@@ -9,14 +9,25 @@ from typing import Any
 
 import pytest
 from freezegun.api import FrozenDateTimeFactory
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant_custom_component.common import (
+    async_capture_events,
+    async_fire_time_changed,
+)
 
-from custom_components.punch_clock.const import DOMAIN, STORAGE_KEY_CONFIG, STORAGE_KEY_RUNTIME
+from custom_components.punch_clock.const import (
+    DOMAIN,
+    EVENT_APPLIED,
+    EVENT_LOGBOOK_ENTRY,
+    EVENT_PROBLEM,
+    STORAGE_KEY_CONFIG,
+    STORAGE_KEY_RUNTIME,
+)
 
 from helpers import (
+    TAB,
     block,
     condition,
     entity_action,
@@ -142,6 +153,129 @@ async def test_climate_mode_is_set_before_temperature(
     assert [service for service, _ in calls] == ["climate.set_hvac_mode", "climate.set_temperature"]
 
 
+async def test_each_write_is_announced_before_its_calls(
+    hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
+) -> None:
+    hass.states.async_set(CLIMATE, "off", {**CLIMATE_ATTRS, "friendly_name": "Hall"})
+    hass.states.async_set("input_number.level", "1", {"min": 0, "max": 10, "step": 1})
+    hass_storage[STORAGE_KEY_CONFIG] = stored_config(
+        tabs=[tab(name="Winter", defaults=[entity_action("input_number.level", value=5)])],
+        blocks=[
+            block(
+                "b_1",
+                day=0,
+                start=hm(8, 5),  # off the 15-minute safety tick, so the reason is "schedule"
+                duration=60,
+                actions=[entity_action(CLIMATE, hvac_mode="heat", temperature=21)],
+            )
+        ],
+    )
+    # (kind, what, context id) in the order things happen.
+    log: list[tuple[str, str, str]] = []
+
+    async def handler(call: ServiceCall) -> None:
+        log.append(("call", call.service, call.context.id))
+
+    for domain, service in [
+        ("climate", "set_hvac_mode"),
+        ("climate", "set_temperature"),
+        ("input_number", "set_value"),
+    ]:
+        hass.services.async_register(domain, service, handler)
+
+    @callback
+    def on_entry(event: Event) -> None:
+        log.append(("activity", event.data["entity_id"], event.context.id))
+
+    @callback
+    def on_applied(event: Event) -> None:
+        log.append(("event", event.data["entity_id"], event.context.id))
+
+    hass.bus.async_listen(EVENT_LOGBOOK_ENTRY, on_entry)
+    hass.bus.async_listen(EVENT_APPLIED, on_applied)
+    entries = async_capture_events(hass, EVENT_LOGBOOK_ENTRY)
+    events = async_capture_events(hass, EVENT_APPLIED)
+    await setup_integration(hass)  # 07:00: the tab default
+    await move_to(hass, freezer, START + timedelta(hours=1))  # the overdue safety ticks run
+    await move_to(hass, freezer, START + timedelta(hours=1, minutes=5))  # 08:05: the block
+
+    default_ctx, block_ctx = log[0][2], log[3][2]
+    assert log == [
+        ("activity", "input_number.level", default_ctx),
+        ("event", "input_number.level", default_ctx),
+        ("call", "set_value", default_ctx),
+        ("activity", CLIMATE, block_ctx),
+        ("event", CLIMATE, block_ctx),
+        ("call", "set_hvac_mode", block_ctx),
+        ("call", "set_temperature", block_ctx),
+    ]
+    assert default_ctx != block_ctx
+    assert entries[1].data == {
+        "name": "Hall",
+        "message": "Punch Clock set heat, 21 °C (b_1)",
+        "domain": DOMAIN,
+        "entity_id": CLIMATE,
+    }
+    assert events[0].data["reason"] == "startup"
+    assert events[0].data["sources"][0]["label"] == "default for Winter"
+    assert events[1].data == {
+        "entity_id": CLIMATE,
+        "name": "Hall",
+        "service": None,
+        "settings": {"hvac_mode": "heat", "temperature": 21},
+        "temperature_unit": "°C",
+        "sources": [
+            {
+                "kind": "block",
+                "tab_id": TAB,
+                "tab": "Winter",
+                "block_id": "b_1",
+                "block": "b_1",
+                "label": "b_1",
+                "keys": ["hvac_mode", "temperature"],
+            }
+        ],
+        "reason": "schedule",
+    }
+
+
+async def test_only_real_problems_are_reported(
+    hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
+) -> None:
+    hass.states.async_set(CLIMATE, "heat", CLIMATE_ATTRS)
+    hass.states.async_set("climate.other", "heat", CLIMATE_ATTRS)
+    hass_storage[STORAGE_KEY_CONFIG] = stored_config(
+        blocks=[
+            block(
+                "b_1",
+                day=0,
+                start=hm(8),
+                duration=60,
+                actions=[
+                    # Off wins over the temperature by design: not a problem.
+                    entity_action(CLIMATE, hvac_mode="off", temperature=21),
+                    # "cool" isn't one of the entity's hvac_modes: a problem.
+                    entity_action("climate.other", hvac_mode="cool", temperature=21),
+                ],
+            )
+        ]
+    )
+    record(hass, "climate.set_hvac_mode", "climate.set_temperature")
+    applied = async_capture_events(hass, EVENT_APPLIED)
+    problems = async_capture_events(hass, EVENT_PROBLEM)
+    await setup_integration(hass)
+    await move_to(hass, freezer, START + timedelta(hours=1))
+
+    assert [(e.data["entity_id"], e.data["settings"]) for e in applied] == [
+        (CLIMATE, {"hvac_mode": "off"}),
+        ("climate.other", {"temperature": 21}),
+    ]
+    assert [(e.data["entity_id"], e.data["message"]) for e in problems] == [
+        ("climate.other", "hvac_mode skipped: 'cool' is not in the entity's hvac_modes")
+    ]
+    assert problems[0].context.id not in {e.context.id for e in applied}
+
+
 async def test_manual_change_is_respected(
     hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
 ) -> None:
@@ -248,11 +382,13 @@ async def test_master_switch(
     await move_to(hass, freezer, START + timedelta(hours=1))  # block starts while paused
     assert calls == []
 
+    applied = async_capture_events(hass, EVENT_APPLIED)
     await hass.services.async_call(
         "switch", "turn_on", {"entity_id": "switch.punch_clock_enabled"}, blocking=True
     )
     await hass.async_block_till_done()
     assert temps(calls) == [22]
+    assert [e.data["reason"] for e in applied] == ["enabled"]
 
 
 async def test_tab_switch_disables_tab(
@@ -327,11 +463,14 @@ async def test_failing_service_is_recorded(
         raise ValueError("device offline")
 
     hass.services.async_register("climate", "set_temperature", broken)
+    problems = async_capture_events(hass, EVENT_PROBLEM)
     entry = await setup_integration(hass)
     await move_to(hass, freezer, START + timedelta(hours=1))
     errors = entry.runtime_data.engine.status()["errors"]
     assert errors[0]["entity_id"] == CLIMATE
     assert "device offline" in errors[0]["message"]
+    assert problems[0].data["entity_id"] == CLIMATE
+    assert problems[0].data["message"] == errors[0]["message"]
 
 
 async def test_write_budget(

@@ -145,16 +145,58 @@ Desired state is recomputed on:
 ## Errors and safety
 
 - Values are clamped to the entity's live min/max and rounded to its step. Enum values that
-  aren't in the entity's current option list are skipped, with a reason recorded.
+  aren't in the entity's current option list are skipped and recorded as a problem. Values
+  left out by the combination rules in [settings-keys.md](settings-keys.md#combination-rules)
+  (for example, off wins) are expected, not problems.
 - If a target entity is unavailable when it should be written, the write is kept as
   *pending* and done as soon as the entity becomes available, provided the value is still
   desired.
-- Service call errors are recorded in the status shown in the panel. They are not retried.
+- Service call errors are recorded as problems. They are not retried.
+- Problems show in the panel's status, in Activity (see below) and as warnings in Home
+  Assistant's log.
 - **Write budget:** at most 6 writes per entity per 10 minutes. Above that, writes to that
   entity pause for 10 minutes and a Repairs issue is raised. This contains a schedule whose
   conditions keep flipping.
 - The editor warns when a condition references an entity that the schedule itself controls,
   because that can create a feedback loop.
+
+## Activity view and events
+
+Punch Clock records each write and each problem in Home Assistant's **Activity** view (the
+logbook), which keeps entries as long as history (10 days by default).
+
+- **A write to an entity** adds one entry, titled with the entity's name: "Hall · Punch Clock
+  set heat, 21 °C (Morning warm-up)". It lists only the values actually sent, each with the
+  block it came from (its name, or for an unnamed block its day and start time) or "default
+  for *tab*". Unless the clock alone caused the write, a reason follows: "because conditions
+  changed", "because the schedule changed", "because Punch Clock was turned back on", "when
+  Punch Clock started", "now that it's available" or "because Home Assistant's settings
+  changed".
+- **A service action** adds an entry titled "Punch Clock": "called script.turn_on for Bedtime
+  (Evening)".
+- **A problem** adds "Hall · Punch Clock had a problem: …", or for a service action "Punch
+  Clock · had a problem with script.turn_on: …".
+- Nothing is recorded when no write is needed: the entity already has the value, or a manual
+  change is being respected.
+
+The entries are `logbook_entry` events carrying the entity's `entity_id`. That is what puts them
+in the entity's own Activity too: when Activity is filtered to an entity, Home Assistant leaves
+out other integrations' own events but keeps logbook entries. Each write runs in a context of its
+own, shared by its entry, its `punch_clock_applied` event and its service calls, with the entry
+first. So the entity's resulting state change isn't credited to the bare service call (such as
+`climate.set_hvac_mode`); the Punch Clock entry just before it explains it.
+
+For automations, Punch Clock also fires these events. They don't appear in Activity themselves.
+
+| Event | When | Data |
+|---|---|---|
+| `punch_clock_applied` | For each write, just before its service calls | `entity_id`, `name` and `settings` (the values sent, in the schedule's unit) with `temperature_unit`; for a service action, `service`, `target` and `service_data` instead (`entity_id` is null). Always `sources` and `reason`. |
+| `punch_clock_problem` | For each problem | `entity_id` and `name`, or `service`; `message` |
+
+Each item of `sources` has `kind` (`block` or `default`), `tab_id`, `tab`, `block_id`, `block`,
+`label` (as shown in Activity) and `keys` (the settings it set). `reason` is one of `schedule`,
+`periodic` (the 15-minute safety tick), `condition`, `config`, `enabled`, `startup`,
+`available` or `core_config`.
 
 ## Entities
 

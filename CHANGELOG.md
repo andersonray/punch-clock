@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Home Assistant's Activity view records everything Punch Clock sets, with the block or tab
+  default it came from and why, plus any problem it runs into. The entries also show in each
+  entity's own Activity.
+- `punch_clock_applied` and `punch_clock_problem` events for automations.
+
+### Changed
+
+- Values left out by a combination rule (for example, off wins over a temperature) are no
+  longer reported as problems.
+
 ## 0.1.0 (2026-10-13)
 
 First version.

@@ -41,10 +41,16 @@ class ServiceCall:
 
 @dataclass(slots=True)
 class PlanResult:
-    """The service calls for one entity, plus the keys that were skipped and why."""
+    """The service calls for one entity, plus the keys that weren't sent and why.
+
+    ``skipped`` keys are problems, such as a value the entity doesn't offer.
+    ``superseded`` keys gave way to another key under the combination rules in
+    docs/settings-keys.md (for example, off wins); they're expected, not problems.
+    """
 
     calls: list[ServiceCall] = field(default_factory=list)
     skipped: list[tuple[str, str]] = field(default_factory=list)
+    superseded: list[tuple[str, str]] = field(default_factory=list)
 
     def call(self, entity_id: str, service: str, data: dict[str, Any] | None = None) -> None:
         domain = entity_id.split(".", 1)[0]
@@ -52,6 +58,13 @@ class PlanResult:
 
     def skip(self, key: str, reason: str) -> None:
         self.skipped.append((key, reason))
+
+    def supersede(self, key: str, reason: str) -> None:
+        self.superseded.append((key, reason))
+
+    @property
+    def unsent(self) -> set[str]:
+        return {key for key, _ in (*self.skipped, *self.superseded)}
 
 
 # ---------------------------------------------------------------------------
@@ -434,10 +447,10 @@ def _enum_call(
         r.skip(key, f"'{value}' is not in the entity's {options_attr}")
 
 
-def _skip_rest(r: PlanResult, settings: Mapping[str, Any], keep: str, reason: str) -> None:
+def _supersede_rest(r: PlanResult, settings: Mapping[str, Any], keep: str, reason: str) -> None:
     for key in settings:
         if key != keep:
-            r.skip(key, reason)
+            r.supersede(key, reason)
 
 
 def _plan_climate(entity_id: str, settings: Mapping[str, Any], s: StateView) -> PlanResult:
@@ -450,7 +463,7 @@ def _plan_climate(entity_id: str, settings: Mapping[str, Any], s: StateView) -> 
             r.call(entity_id, "set_hvac_mode", {"hvac_mode": mode})
             effective_mode = mode
             if mode == "off":
-                _skip_rest(r, settings, "hvac_mode", "hvac_mode is off")
+                _supersede_rest(r, settings, "hvac_mode", "hvac_mode is off")
                 return r
         else:
             r.skip("hvac_mode", f"'{mode}' is not in the entity's hvac_modes")
@@ -462,10 +475,10 @@ def _plan_climate(entity_id: str, settings: Mapping[str, Any], s: StateView) -> 
     if use_range and use_single:
         if effective_mode == "heat_cool":
             use_single = False
-            r.skip("temperature", "temp_range is used in heat_cool mode")
+            r.supersede("temperature", "temp_range is used in heat_cool mode")
         else:
             use_range = False
-            r.skip("temp_range", "a single temperature is used outside heat_cool mode")
+            r.supersede("temp_range", "a single temperature is used outside heat_cool mode")
     if use_single:
         temperature = _norm_temperature(settings["temperature"], attrs)
         r.call(entity_id, "set_temperature", {"temperature": temperature})
@@ -497,7 +510,7 @@ def _plan_water_heater(entity_id: str, settings: Mapping[str, Any], s: StateView
     state = settings.get("state")
     if state == "off":
         r.call(entity_id, "turn_off")
-        _skip_rest(r, settings, "state", "state is off")
+        _supersede_rest(r, settings, "state", "state is off")
         return r
     if state == "on":
         r.call(entity_id, "turn_on")
@@ -518,7 +531,7 @@ def _plan_humidifier(entity_id: str, settings: Mapping[str, Any], s: StateView) 
     state = settings.get("state")
     if state == "off":
         r.call(entity_id, "turn_off")
-        _skip_rest(r, settings, "state", "state is off")
+        _supersede_rest(r, settings, "state", "state is off")
         return r
     if state == "on":
         r.call(entity_id, "turn_on")
@@ -535,7 +548,7 @@ def _plan_fan(entity_id: str, settings: Mapping[str, Any], s: StateView) -> Plan
     state = settings.get("state")
     if state == "off":
         r.call(entity_id, "turn_off")
-        _skip_rest(r, settings, "state", "state is off")
+        _supersede_rest(r, settings, "state", "state is off")
         return r
 
     speed: dict[str, Any] = {}
@@ -547,7 +560,7 @@ def _plan_fan(entity_id: str, settings: Mapping[str, Any], s: StateView) -> Plan
             r.skip("preset_mode", f"'{preset}' is not in the entity's preset_modes")
     if "percentage" in settings:
         if speed:
-            r.skip("percentage", "preset_mode is used instead")
+            r.supersede("percentage", "preset_mode is used instead")
         else:
             speed["percentage"] = _norm_percentage(settings["percentage"], attrs)
 
@@ -571,7 +584,7 @@ def _plan_light(entity_id: str, settings: Mapping[str, Any], s: StateView) -> Pl
     state = settings.get("state")
     if state == "off":
         r.call(entity_id, "turn_off")
-        _skip_rest(r, settings, "state", "state is off")
+        _supersede_rest(r, settings, "state", "state is off")
         return r
 
     data: dict[str, Any] = {}
@@ -588,7 +601,7 @@ def _plan_light(entity_id: str, settings: Mapping[str, Any], s: StateView) -> Pl
             )
         )
         if "rgb_color" in settings:
-            r.skip("rgb_color", "color_temp_kelvin is used instead")
+            r.supersede("rgb_color", "color_temp_kelvin is used instead")
     elif "rgb_color" in settings:
         data["rgb_color"] = list(settings["rgb_color"])
     if "effect" in settings:
@@ -641,7 +654,7 @@ def _plan_cover(entity_id: str, settings: Mapping[str, Any], s: StateView) -> Pl
         else:
             r.call(entity_id, "open_cover" if position > 0 else "close_cover")
         if "state" in settings:
-            r.skip("state", "position is used instead")
+            r.supersede("state", "position is used instead")
     elif "state" in settings:
         r.call(entity_id, "open_cover" if settings["state"] == "open" else "close_cover")
     if "tilt_position" in settings:
@@ -659,7 +672,7 @@ def _plan_media_player(entity_id: str, settings: Mapping[str, Any], s: StateView
     state = settings.get("state")
     if state == "off":
         r.call(entity_id, "turn_off")
-        _skip_rest(r, settings, "state", "state is off")
+        _supersede_rest(r, settings, "state", "state is off")
         return r
     if state == "on":
         r.call(entity_id, "turn_on")

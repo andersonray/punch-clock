@@ -81,6 +81,8 @@ only). Every decision is made there:
   suppresses the rest).
 - `timemath.py`: wall-clock "minute of the week" (Monday 00:00 = 0) in HA's time zone, midnight
   and week wrap, and DST-aware boundary instants.
+- `describe.py`: the plain-language Activity messages ("Punch Clock set heat, 21 °C (Morning
+  warm-up)") and the `sources` data naming the block or tab default behind each value.
 
 The HA layer wires that core to Home Assistant:
 
@@ -91,7 +93,10 @@ The HA layer wires that core to Home Assistant:
   services. Scheduled temperatures are converted from the schedule's unit to HA's unit right before
   matching and planning. It also keeps pending writes (for unavailable entities), a per-entity write
   budget (with a Repairs issue), recent errors, and the status published on
-  `SIGNAL_STATUS_UPDATED`.
+  `SIGNAL_STATUS_UPDATED`. Each write and problem gets an Activity entry, fired as a plain
+  `logbook_entry` event: an integration's own described events would be missing from an entity's
+  filtered Activity. Each write also fires `punch_clock_applied` in the same per-write context as
+  its service calls (see "Activity view and events" in `docs/semantics.md`).
 - `websocket_api.py`: the `punch_clock/*` commands. They're registered once in `async_setup`,
   because commands can't be unregistered; each handler looks up the loaded entry and enforces the
   `require_admin` option. `subscribe` pushes config and status snapshots.

@@ -30,6 +30,10 @@ DEFAULT_REQUIRE_ADMIN: Final = True
 SIGNAL_CONFIG_UPDATED: Final = f"{DOMAIN}_config_updated"
 SIGNAL_STATUS_UPDATED: Final = f"{DOMAIN}_status_updated"
 EVENT_APPLIED: Final = f"{DOMAIN}_applied"
+EVENT_PROBLEM: Final = f"{DOMAIN}_problem"
+# The logbook's event for an Activity entry (homeassistant.components.logbook.async_log_entry
+# fires it). Fired directly, so Punch Clock doesn't depend on the logbook integration.
+EVENT_LOGBOOK_ENTRY: Final = "logbook_entry"
 
 SAFETY_INTERVAL: Final = timedelta(minutes=15)
 SERVICE_TIMEOUT: Final = 30.0

@@ -24,6 +24,8 @@ a calendar.
   another block's actions and conditions to the selected one.
 - **Exposed entities.** A master switch, a switch per tab, and a binary sensor per tab, for use in
   automations and dashboards.
+- **Activity entries.** Everything Punch Clock sets, and any problem it runs into, shows in Home
+  Assistant's Activity view and in the entity's own Activity, with the block it came from.
 
 Punch Clock respects manual changes. It only writes a value when the scheduled value changes, so
 adjusting the thermostat by hand during a block sticks until the next scheduled change. The exact
@@ -86,6 +88,13 @@ Open **Punch Clock** in the sidebar.
 
 Each tab gets `switch.punch_clock_<tab>_enabled` and `binary_sensor.punch_clock_<tab>_active`.
 `switch.punch_clock_enabled` pauses all scheduling.
+
+To see what Punch Clock did and why, open **Activity** in the sidebar, or the **Activity** tab of
+an entity's dialog. Each write reads like *Hall: Punch Clock set heat, 21 °C (Morning warm-up)*,
+followed by the reason when it's something other than the clock (for example, *because conditions
+changed*). Problems read like *Hall: Punch Clock had a problem: …*. For automations, Punch Clock
+also fires `punch_clock_applied` and `punch_clock_problem` events; see
+[docs/semantics.md](docs/semantics.md#activity-view-and-events).
 
 ## Development
 
