@@ -112,7 +112,13 @@ describe("conflicts", () => {
     const config: Config = {
       revision: 1,
       seq: 1,
-      settings: { enabled: true, week_start: 6, debounce_seconds: 2, temperature_unit: "°C" },
+      settings: {
+        enabled: true,
+        week_start: 6,
+        debounce_seconds: 2,
+        temperature_unit: "°C",
+        time_format: "auto",
+      },
       tabs: [{ id: "t1", name: "Week", enabled: true, conditions: emptyGroup(), defaults: [] }],
       blocks: [block("a")],
     };

@@ -5,8 +5,10 @@ unit of desired state. Punch Clock resolves keys independently, so one block can
 thermostat's temperature while another sets its fan mode. Keys that must change
 together are compound, for example `temp_range`.
 
-Before writing, values are clamped to the entity's current min/max and rounded to its
-step. Values for option lists (modes, presets, sources, ...) that the entity doesn't
+Temperatures are stored in the schedule's unit (°C or °F, chosen in Punch Clock's settings)
+and converted to Home Assistant's unit before writing (see
+[semantics](semantics.md#temperature-units)). Then values are clamped to the entity's current
+min/max and rounded to its step. Values for option lists (modes, presets, sources, ...) that the entity doesn't
 currently offer are skipped, and the skip is reported in the panel's status.
 
 The source of truth is `DOMAIN_KEYS` in

@@ -22,10 +22,9 @@ import {
   durationBetween,
   formatDuration,
   formatRange,
-  parseTimeInput,
   stopMinute,
-  toTimeInput,
 } from "../logic/time";
+import type { TemperatureUnits } from "../logic/capabilities";
 import { controls } from "../styles";
 import {
   icon,
@@ -38,11 +37,20 @@ import {
 } from "../icons";
 import "./pc-action-editor";
 import "./pc-condition-editor";
+import "./pc-time-input";
+
+/** The editor's unsaved name and color, for showing in the calendar before saving. */
+export interface BlockPreview {
+  blockId: string;
+  name: string;
+  color: string;
+}
 
 /**
  * Side panel (full screen when narrow) for editing one block. Works on a draft;
  * Save writes it. Events: `close-editor`, `delete-block`, `duplicate-block`
- * ({ block }), `start-eyedropper`.
+ * ({ block }), `start-eyedropper`, `preview-changed` (BlockPreview: the color as
+ * soon as it changes, the name once the name field loses focus).
  */
 export class PcBlockEditor extends LitElement {
   static override properties = {
@@ -51,7 +59,7 @@ export class PcBlockEditor extends LitElement {
     config: { attribute: false },
     status: { attribute: false },
     api: { attribute: false },
-    temperatureUnit: {},
+    units: { attribute: false },
     use24h: { type: Boolean },
     language: {},
     picking: { type: Boolean },
@@ -66,7 +74,7 @@ export class PcBlockEditor extends LitElement {
   declare config: Config;
   declare status: Status | null;
   declare api: PunchClockApi;
-  declare temperatureUnit: string;
+  declare units: TemperatureUnits;
   declare use24h: boolean;
   declare language: string;
   declare picking: boolean;
@@ -77,11 +85,14 @@ export class PcBlockEditor extends LitElement {
 
   private baseline = "";
   private evaluateTimer = 0;
+  /** The name shown in the calendar; follows the name field when it loses focus. */
+  private previewName = "";
+  private lastPreview = "";
 
   constructor() {
     super();
     this.status = null;
-    this.temperatureUnit = "°C";
+    this.units = { schedule: "°C", ha: "°C" };
     this.use24h = false;
     this.language = "en";
     this.picking = false;
@@ -95,9 +106,10 @@ export class PcBlockEditor extends LitElement {
     return !!this._draft && JSON.stringify(this._draft) !== this.baseline;
   }
 
-  /** Replace the draft's actions and conditions with copies from another block. */
-  applyBehavior(source: Block): void {
-    this.patch({ ...copyBehavior(source) });
+  /** Replace the draft's name, color, actions and conditions with copies from another block. */
+  applyFrom(source: Block): void {
+    this.previewName = source.name;
+    this.patch({ ...copyBehavior(source), name: source.name, color: source.color });
   }
 
   override disconnectedCallback(): void {
@@ -112,6 +124,7 @@ export class PcBlockEditor extends LitElement {
       if (!this._draft || switched || !this.dirty) {
         this._draft = structuredClone(this.block);
         this.baseline = JSON.stringify(this.block);
+        this.previewName = this.block.name;
         this._error = "";
         if (switched) this._explain = null;
         this.scheduleEvaluate();
@@ -128,6 +141,18 @@ export class PcBlockEditor extends LitElement {
           this.scheduleEvaluate();
           break;
         }
+      }
+    }
+    if (this._draft) {
+      const preview: BlockPreview = {
+        blockId: this._draft.id,
+        name: this.previewName,
+        color: this._draft.color,
+      };
+      const key = JSON.stringify(preview);
+      if (key !== this.lastPreview) {
+        this.lastPreview = key;
+        this.fire("preview-changed", preview);
       }
     }
   }
@@ -186,6 +211,7 @@ export class PcBlockEditor extends LitElement {
 
   private revert(): void {
     this._draft = structuredClone(this.block);
+    this.previewName = this.block.name;
     this._error = "";
     this.scheduleEvaluate();
   }
@@ -240,27 +266,26 @@ export class PcBlockEditor extends LitElement {
         </label>
         <label
           >Start
-          <input
-            type="time"
-            step="60"
-            .value=${toTimeInput(d.start)}
-            @change=${(e: Event) => {
-              const start = parseTimeInput((e.target as HTMLInputElement).value);
-              if (start !== null) this.patch({ start, duration: durationBetween(start, stop) });
-            }}
-          />
+          <pc-time-input
+            label="Start"
+            .value=${d.start}
+            ?use24h=${this.use24h}
+            @value-changed=${(e: CustomEvent<{ value: number }>) =>
+              this.patch({
+                start: e.detail.value,
+                duration: durationBetween(e.detail.value, stop),
+              })}
+          ></pc-time-input>
         </label>
         <label
           >Stop
-          <input
-            type="time"
-            step="60"
-            .value=${toTimeInput(stop)}
-            @change=${(e: Event) => {
-              const value = parseTimeInput((e.target as HTMLInputElement).value);
-              if (value !== null) this.patch({ duration: durationBetween(d.start, value) });
-            }}
-          />
+          <pc-time-input
+            label="Stop"
+            .value=${stop}
+            ?use24h=${this.use24h}
+            @value-changed=${(e: CustomEvent<{ value: number }>) =>
+              this.patch({ duration: durationBetween(d.start, e.detail.value) })}
+          ></pc-time-input>
         </label>
       </div>
       <div class="muted small">
@@ -314,7 +339,7 @@ export class PcBlockEditor extends LitElement {
           html`<pc-action-editor
             .hass=${this.hass}
             .action=${action}
-            .temperatureUnit=${this.temperatureUnit}
+            .units=${this.units}
             @action-changed=${(e: CustomEvent<{ action: Action }>) => setAction(i, e.detail.action)}
             @remove=${() => setAction(i, null)}
           ></pc-action-editor>`,
@@ -396,6 +421,10 @@ export class PcBlockEditor extends LitElement {
           placeholder=${blockLabel({ ...d, name: "" }, this.hass.states)}
           .value=${d.name}
           @input=${(e: Event) => this.patch({ name: (e.target as HTMLInputElement).value })}
+          @change=${(e: Event) => {
+            this.previewName = (e.target as HTMLInputElement).value;
+            this.requestUpdate();
+          }}
         />
         <button class="icon-btn" aria-label="Close" @click=${() => this.fire("close-editor")}>
           ${icon(mdiClose)}

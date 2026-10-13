@@ -12,12 +12,14 @@ import { PcEntityPicker } from "./components/pc-entity-picker";
 import { PcSettingsDialog } from "./components/pc-settings-dialog";
 import { PcTabBar } from "./components/pc-tab-bar";
 import { PcTabDialog } from "./components/pc-tab-dialog";
+import { PcTimeInput } from "./components/pc-time-input";
 import { PcWeekView } from "./components/pc-week-view";
 
 const elements: [string, CustomElementConstructor][] = [
   ["pc-dialog", PcDialog],
   ["pc-confirm-dialog", PcConfirmDialog],
   ["pc-entity-picker", PcEntityPicker],
+  ["pc-time-input", PcTimeInput],
   ["pc-action-editor", PcActionEditor],
   ["pc-condition-editor", PcConditionEditor],
   ["pc-week-view", PcWeekView],

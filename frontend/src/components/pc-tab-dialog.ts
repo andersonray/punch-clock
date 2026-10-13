@@ -18,6 +18,7 @@ import {
   friendlyName,
   newEntityAction,
 } from "../logic/model";
+import type { TemperatureUnits } from "../logic/capabilities";
 import { controls } from "../styles";
 import { icon, mdiPlus } from "../icons";
 import "./pc-dialog";
@@ -37,7 +38,7 @@ export class PcTabDialog extends LitElement {
     api: { attribute: false },
     config: { attribute: false },
     tab: { attribute: false },
-    temperatureUnit: {},
+    units: { attribute: false },
     _draft: { state: true },
     _explain: { state: true },
     _error: { state: true },
@@ -50,7 +51,7 @@ export class PcTabDialog extends LitElement {
   declare config: Config;
   /** The tab to edit, or null to create a new one. */
   declare tab: Tab | null;
-  declare temperatureUnit: string;
+  declare units: TemperatureUnits;
   declare _draft: TabDraft;
   declare _explain: ExplainNode | null;
   declare _error: string;
@@ -62,7 +63,7 @@ export class PcTabDialog extends LitElement {
     super();
     this.open = false;
     this.tab = null;
-    this.temperatureUnit = "°C";
+    this.units = { schedule: "°C", ha: "°C" };
     this._draft = { name: "", enabled: true, conditions: emptyGroup(), defaults: [] };
     this._explain = null;
     this._error = "";
@@ -202,7 +203,7 @@ export class PcTabDialog extends LitElement {
                 entityOnly
                 .hass=${this.hass}
                 .action=${action}
-                .temperatureUnit=${this.temperatureUnit}
+                .units=${this.units}
                 @action-changed=${(e: CustomEvent<{ action: Action }>) => setDefault(i, e.detail.action)}
                 @remove=${() => setDefault(i, null)}
               ></pc-action-editor>`,

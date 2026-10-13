@@ -15,7 +15,8 @@ import { blockLabel, countConditions, emptyGroup, nextColor } from "../logic/mod
 import { MINUTES_PER_DAY, nowIn, uses24h } from "../logic/time";
 import { themeTokens, controls } from "../styles";
 import { icon, mdiAlertCircleOutline, mdiCog, mdiMenu, mdiPlus } from "../icons";
-import type { PcBlockEditor } from "../components/pc-block-editor";
+import type { TemperatureUnits } from "../logic/capabilities";
+import type { PcBlockEditor, BlockPreview } from "../components/pc-block-editor";
 import type { PcConfirmDialog } from "../components/pc-confirm-dialog";
 import type { CreateBlockDetail } from "../components/pc-week-view";
 import type { TabMenuAction } from "../components/pc-tab-bar";
@@ -24,7 +25,12 @@ import { HOUR_HEIGHTS, type LocalPrefs } from "../components/pc-settings-dialog"
 declare const __PC_VERSION__: string;
 
 const PREFS_KEY = "punch-clock:prefs";
-const DEFAULT_PREFS: LocalPrefs = { hourHeight: 48, initialHour: -1 };
+const DEFAULT_PREFS: LocalPrefs = { hourHeight: 48, initialHour: -1, editorWidth: 460 };
+/** The block editor can't get narrower than this... */
+const MIN_EDITOR_WIDTH = 340;
+/** ...and always leaves at least this much of the calendar visible. */
+const MIN_CALENDAR_WIDTH = 160;
+const RESIZE_STEP = 32;
 
 function loadPrefs(): LocalPrefs {
   try {
@@ -36,6 +42,10 @@ function loadPrefs(): LocalPrefs {
       initialHour: Number.isInteger(raw.initialHour)
         ? Number(raw.initialHour)
         : DEFAULT_PREFS.initialHour,
+      editorWidth:
+        Number(raw.editorWidth) >= MIN_EDITOR_WIDTH
+          ? Number(raw.editorWidth)
+          : DEFAULT_PREFS.editorWidth,
     };
   } catch {
     return { ...DEFAULT_PREFS };
@@ -61,6 +71,8 @@ export class PunchClockPanel extends LitElement {
     _toast: { state: true },
     _loadError: { state: true },
     _prefs: { state: true },
+    _preview: { state: true },
+    _resizing: { state: true },
   };
 
   declare hass: HomeAssistant;
@@ -79,11 +91,16 @@ export class PunchClockPanel extends LitElement {
   declare _toast: string;
   declare _loadError: string;
   declare _prefs: LocalPrefs;
+  /** Unsaved name/color of the block being edited, shown in the calendar right away. */
+  declare _preview: BlockPreview | null;
+  declare _resizing: boolean;
 
   private readonly api = new PunchClockApi(() => this.hass);
   private unsubscribe: (() => Promise<void>) | null = null;
   private connecting = false;
   private toastTimer = 0;
+  private viewCache: { config: Config; preview: BlockPreview; result: Config } | null = null;
+  private unitsCache: TemperatureUnits = { schedule: "°C", ha: "°C" };
 
   constructor() {
     super();
@@ -100,6 +117,8 @@ export class PunchClockPanel extends LitElement {
     this._toast = "";
     this._loadError = "";
     this._prefs = loadPrefs();
+    this._preview = null;
+    this._resizing = false;
   }
 
   override connectedCallback(): void {
@@ -172,6 +191,8 @@ export class PunchClockPanel extends LitElement {
   }
 
   private get use24h(): boolean {
+    const format = this._config?.settings.time_format ?? "auto";
+    if (format !== "auto") return format === "24";
     return uses24h(this.hass.locale ?? { language: this.hass.language });
   }
 
@@ -183,8 +204,86 @@ export class PunchClockPanel extends LitElement {
     return this._info?.time_zone ?? this.hass.config.time_zone;
   }
 
-  private get temperatureUnit(): string {
-    return this._info?.temperature_unit ?? this.hass.config.unit_system?.temperature ?? "°C";
+  /** The schedule's temperature unit and Home Assistant's (a stable object for Lit). */
+  private get units(): TemperatureUnits {
+    const schedule = this._config?.settings.temperature_unit ?? "°C";
+    const ha = this._info?.temperature_unit ?? this.hass.config.unit_system?.temperature ?? "°C";
+    if (this.unitsCache.schedule !== schedule || this.unitsCache.ha !== ha) {
+      this.unitsCache = { schedule, ha };
+    }
+    return this.unitsCache;
+  }
+
+  /** The config shown in the calendar: saved data plus the editor's unsaved name/color. */
+  private viewConfig(config: Config): Config {
+    const preview = this._preview;
+    if (!preview || preview.blockId !== this._selectedId) return config;
+    const cache = this.viewCache;
+    if (cache && cache.config === config && cache.preview === preview) return cache.result;
+    const result = {
+      ...config,
+      blocks: config.blocks.map((b) =>
+        b.id === preview.blockId ? { ...b, name: preview.name, color: preview.color } : b,
+      ),
+    };
+    this.viewCache = { config, preview, result };
+    return result;
+  }
+
+  private setPreview(preview: BlockPreview): void {
+    const saved = this._config?.blocks.find((b) => b.id === preview.blockId);
+    const unchanged = saved && saved.name === preview.name && saved.color === preview.color;
+    this._preview = unchanged ? null : preview;
+  }
+
+  private savePrefs(prefs: LocalPrefs): void {
+    this._prefs = prefs;
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    } catch {
+      // Storage can be unavailable (private mode); the preference just won't persist.
+    }
+  }
+
+  // --- Resizing the editor -----------------------------------------------------
+
+  private clampEditorWidth(width: number): number {
+    const total = (this.renderRoot.querySelector(".main") as HTMLElement | null)?.clientWidth ?? 0;
+    const max = Math.max(MIN_EDITOR_WIDTH, total - MIN_CALENDAR_WIDTH);
+    return Math.round(Math.min(Math.max(width, MIN_EDITOR_WIDTH), max));
+  }
+
+  private onSplitterDown(e: PointerEvent): void {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    this._resizing = true;
+  }
+
+  private onSplitterMove(e: PointerEvent): void {
+    if (!this._resizing) return;
+    const main = this.renderRoot.querySelector(".main") as HTMLElement;
+    const width = this.clampEditorWidth(main.getBoundingClientRect().right - e.clientX);
+    this._prefs = { ...this._prefs, editorWidth: width };
+  }
+
+  private onSplitterUp(): void {
+    if (!this._resizing) return;
+    this._resizing = false;
+    this.savePrefs(this._prefs);
+  }
+
+  private onSplitterKey(e: KeyboardEvent): void {
+    const steps: Record<string, number> = {
+      ArrowLeft: this._prefs.editorWidth + RESIZE_STEP,
+      ArrowRight: this._prefs.editorWidth - RESIZE_STEP,
+      Home: Infinity,
+      End: 0,
+    };
+    const next = steps[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    this.savePrefs({ ...this._prefs, editorWidth: this.clampEditorWidth(next) });
   }
 
   private toast(message: string): void {
@@ -250,6 +349,7 @@ export class PunchClockPanel extends LitElement {
     if (blockId === this._selectedId) return;
     if (!(await this.okToLeaveEditor())) return;
     this._selectedId = blockId;
+    this._preview = null;
     this._picking = false;
   }
 
@@ -259,20 +359,20 @@ export class PunchClockPanel extends LitElement {
     const source = this._config?.blocks.find((b) => b.id === blockId);
     if (!editor || !target || !source || source.id === target.id) return;
     this._picking = false;
-    const existing = target.actions.length + countConditions(target.conditions);
-    if (existing) {
+    const conditions = countConditions(target.conditions);
+    if (target.actions.length || conditions || target.name.trim()) {
       const ok = await this.confirmDialog.ask({
-        heading: "Replace actions and conditions?",
+        heading: "Copy from another block?",
         text:
-          `This replaces the ${target.actions.length} action(s) and ` +
-          `${countConditions(target.conditions)} condition(s) of "${blockLabel(target, this.hass.states)}" ` +
-          `with copies from "${blockLabel(source, this.hass.states)}". Save the block to keep the change.`,
+          `This replaces the name, color, ${target.actions.length} action(s) and ` +
+          `${conditions} condition(s) of "${blockLabel(target, this.hass.states)}" with copies ` +
+          `from "${blockLabel(source, this.hass.states)}". Save the block to keep the change.`,
         confirmText: "Replace",
         destructive: true,
       });
       if (!ok) return;
     }
-    editor.applyBehavior(source);
+    editor.applyFrom(source);
     this.toast(`Copied from "${blockLabel(source, this.hass.states)}". Save to keep it.`);
   }
 
@@ -353,7 +453,8 @@ export class PunchClockPanel extends LitElement {
     const tabState = tab ? this._status?.tabs[tab.id] : undefined;
     if (this._picking) {
       return html`<div class="banner info">
-        Click the block to copy actions and conditions from. Press Esc to cancel.
+        Click the block to copy from. Its name, color, actions and conditions replace this block's.
+        Press Esc to cancel.
         <button class="btn text" @click=${() => (this._picking = false)}>Cancel</button>
       </div>`;
     }
@@ -473,7 +574,7 @@ export class PunchClockPanel extends LitElement {
       <div class="main">
         <pc-week-view
           .hass=${this.hass}
-          .config=${config}
+          .config=${this.viewConfig(config)}
           .tabId=${this._activeTabId}
           .status=${this._status}
           .selectedId=${this._selectedId}
@@ -492,23 +593,41 @@ export class PunchClockPanel extends LitElement {
         ></pc-week-view>
         ${
           selected
-            ? html`<div class="editor-pane">
-                <pc-block-editor
-                  .hass=${this.hass}
-                  .block=${selected}
-                  .config=${config}
-                  .status=${this._status}
-                  .api=${this.api}
-                  .temperatureUnit=${this.temperatureUnit}
-                  .use24h=${this.use24h}
-                  .language=${this.language}
-                  .picking=${this._picking}
-                  @close-editor=${() => void this.selectBlock(null)}
-                  @delete-block=${() => void this.deleteSelected()}
-                  @duplicate-block=${(e: CustomEvent<{ block: Block }>) => (this._duplicateSource = e.detail.block)}
-                  @start-eyedropper=${() => (this._picking = !this._picking)}
-                ></pc-block-editor>
-              </div>`
+            ? html`<div
+                  class="splitter ${this._resizing ? "active" : ""}"
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize the block editor"
+                  aria-valuenow=${this._prefs.editorWidth}
+                  aria-valuemin=${MIN_EDITOR_WIDTH}
+                  tabindex="0"
+                  title="Drag to resize. Double-click to reset."
+                  @pointerdown=${this.onSplitterDown}
+                  @pointermove=${this.onSplitterMove}
+                  @pointerup=${this.onSplitterUp}
+                  @pointercancel=${this.onSplitterUp}
+                  @keydown=${this.onSplitterKey}
+                  @dblclick=${() =>
+                    this.savePrefs({ ...this._prefs, editorWidth: DEFAULT_PREFS.editorWidth })}
+                ></div>
+                <div class="editor-pane" style="--editor-width:${this._prefs.editorWidth}px">
+                  <pc-block-editor
+                    .hass=${this.hass}
+                    .block=${selected}
+                    .config=${config}
+                    .status=${this._status}
+                    .api=${this.api}
+                    .units=${this.units}
+                    .use24h=${this.use24h}
+                    .language=${this.language}
+                    .picking=${this._picking}
+                    @close-editor=${() => void this.selectBlock(null)}
+                    @delete-block=${() => void this.deleteSelected()}
+                    @duplicate-block=${(e: CustomEvent<{ block: Block }>) => (this._duplicateSource = e.detail.block)}
+                    @start-eyedropper=${() => (this._picking = !this._picking)}
+                    @preview-changed=${(e: CustomEvent<BlockPreview>) => this.setPreview(e.detail)}
+                  ></pc-block-editor>
+                </div>`
             : nothing
         }
       </div>
@@ -518,6 +637,7 @@ export class PunchClockPanel extends LitElement {
         .tabs=${config.tabs}
         .weekStart=${config.settings.week_start}
         .language=${this.language}
+        .use24h=${this.use24h}
         @duplicate=${(e: CustomEvent<{ blocks: BlockInput[] }>) => void this.duplicate(e.detail.blocks)}
         @closed=${() => (this._duplicateSource = null)}
       ></pc-duplicate-dialog>
@@ -527,7 +647,7 @@ export class PunchClockPanel extends LitElement {
         .hass=${this.hass}
         .api=${this.api}
         .config=${config}
-        .temperatureUnit=${this.temperatureUnit}
+        .units=${this.units}
         @saved=${(e: CustomEvent<{ tabId: string }>) => {
           this._tabDialog = null;
           this._activeTabId = e.detail.tabId;
@@ -544,14 +664,7 @@ export class PunchClockPanel extends LitElement {
         .version=${this._info?.version ?? __PC_VERSION__}
         @settings-change=${(e: CustomEvent<{ changes: Partial<Settings> }>) =>
           void this.run(() => this.api.updateSettings(e.detail.changes))}
-        @prefs-change=${(e: CustomEvent<{ prefs: LocalPrefs }>) => {
-          this._prefs = e.detail.prefs;
-          try {
-            localStorage.setItem(PREFS_KEY, JSON.stringify(this._prefs));
-          } catch {
-            // Storage can be unavailable (private mode); the preference just won't persist.
-          }
-        }}
+        @prefs-change=${(e: CustomEvent<{ prefs: LocalPrefs }>) => this.savePrefs(e.detail.prefs)}
         @reapply=${async () => {
           if ((await this.run(() => this.api.reapply())) !== undefined)
             this.toast("Applied the schedule.");
@@ -640,14 +753,62 @@ export class PunchClockPanel extends LitElement {
         min-height: 0;
         display: flex;
       }
+      .main:has(.splitter.active) {
+        cursor: col-resize;
+        user-select: none;
+      }
       pc-week-view {
         flex: 1;
         min-width: 0;
       }
-      .editor-pane {
-        width: 460px;
+      .splitter {
+        position: relative;
         flex: none;
-        border-left: 1px solid var(--pc-divider);
+        width: 9px;
+        margin: 0 -4px;
+        z-index: 3;
+        cursor: col-resize;
+        touch-action: none;
+      }
+      .splitter::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 4px;
+        width: 1px;
+        background: var(--pc-divider);
+        transition:
+          background 0.15s,
+          width 0.15s,
+          left 0.15s;
+      }
+      .splitter::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 2px;
+        width: 5px;
+        height: 36px;
+        margin-top: -18px;
+        border-radius: 3px;
+        background: var(--pc-disabled);
+      }
+      .splitter:hover::before,
+      .splitter:focus-visible::before,
+      .splitter.active::before {
+        left: 3px;
+        width: 3px;
+        background: var(--pc-primary);
+      }
+      .splitter:focus-visible {
+        outline: none;
+      }
+      .editor-pane {
+        width: var(--editor-width, 460px);
+        /* Keep part of the calendar visible when the window shrinks. */
+        max-width: calc(100% - 160px);
+        flex: none;
         min-height: 0;
       }
       .loading {
@@ -668,10 +829,14 @@ export class PunchClockPanel extends LitElement {
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
       }
       @media (max-width: 960px) {
+        .splitter {
+          display: none;
+        }
         .editor-pane {
           position: fixed;
           inset: 0;
           width: auto;
+          max-width: none;
           z-index: 10;
           border-left: none;
           padding-top: env(safe-area-inset-top, 0);

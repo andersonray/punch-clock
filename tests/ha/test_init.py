@@ -89,15 +89,21 @@ async def test_entity_rename_updates_references(
     assert action.entity_id == "climate.new"
 
 
-async def test_temperature_unit_change_raises_issue(
+async def test_schedule_temperature_unit_is_kept(
     hass: HomeAssistant, hass_storage: dict[str, Any]
 ) -> None:
+    """The schedule's unit is independent of Home Assistant's (metric in tests)."""
     hass_storage[STORAGE_KEY_CONFIG] = stored_config(temperature_unit="°F")
     entry = await setup_integration(hass)
-    issue = ir.async_get(hass).async_get_issue(DOMAIN, "temperature_unit_changed")
-    assert issue is not None
-    assert issue.translation_placeholders == {"old": "°F", "new": "°C"}
-    assert entry.runtime_data.store.config.settings.temperature_unit == "°C"
+    assert entry.runtime_data.store.config.settings.temperature_unit == "°F"
+    assert not ir.async_get(hass).issues
+
+
+async def test_new_install_defaults_to_celsius(hass: HomeAssistant) -> None:
+    entry = await setup_integration(hass)
+    settings = entry.runtime_data.store.config.settings
+    assert settings.temperature_unit == "°C"
+    assert settings.time_format == "auto"
 
 
 async def test_invalid_stored_items_are_dropped(

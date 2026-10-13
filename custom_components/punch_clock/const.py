@@ -40,4 +40,3 @@ WRITE_SUPPRESS_SECONDS: Final = 600.0
 MAX_ERRORS: Final = 50
 
 ISSUE_WRITE_BUDGET: Final = "write_budget"
-ISSUE_UNIT_CHANGED: Final = "temperature_unit_changed"

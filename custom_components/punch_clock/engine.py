@@ -54,6 +54,7 @@ from .logic.resolver import SERVICE_PREFIX, SERVICE_SETTING, Key, Resolution, re
 from .logic.state import SPECIAL_STATES, StateView
 from .logic.timemath import boundaries, next_boundary, week_minute
 from .logic.transitions import Mode, plan_writes
+from .logic.units import convert_settings, convert_value
 from .store import PunchClockStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -177,7 +178,13 @@ class PunchClockEngine:
     def _matches(self, key: Key, value: Any) -> bool:
         if key[0].startswith(SERVICE_PREFIX):
             return False
+        value = convert_value(key[0], key[1], value, *self._units())
         return actions.matches(key[0], key[1], value, self.lookup(key[0]))
+
+    @callback
+    def _units(self) -> tuple[str, str]:
+        """(unit the schedule is written in, Home Assistant's unit) for temperatures."""
+        return self.store.config.settings.temperature_unit, self.hass.config.units.temperature_unit
 
     # ------------------------------------------------------------------ triggers
 
@@ -264,7 +271,9 @@ class PunchClockEngine:
         context: Context,
         reason: str,
     ) -> None:
-        result = actions.plan(entity_id, settings, state)
+        result = actions.plan(
+            entity_id, convert_settings(entity_id, settings, *self._units()), state
+        )
         for key, why in result.skipped:
             self._record(entity_id, f"{key} skipped: {why}")
         if result.calls and self._spend_budget(entity_id):

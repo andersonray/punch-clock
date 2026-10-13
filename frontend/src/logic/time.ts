@@ -57,20 +57,32 @@ export const stopMinute = (start: number, duration: number): number =>
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 
-/** "HH:MM" for <input type="time">. */
+/** "HH:MM", 24-hour. */
 export function toTimeInput(minute: number): string {
   const m = ((minute % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
   return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 }
 
-/** Parse "HH:MM" (or "HH:MM:SS"); null if invalid. */
-export function parseTimeInput(text: string): number | null {
-  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(text.trim());
+/**
+ * Parse a typed time of day in either clock style: "18:30", "6:30 pm", "6:30p", "6 PM",
+ * "630", "0630". Returns the minute of the day, or null if it isn't a valid time.
+ */
+export function parseTimeText(text: string): number | null {
+  const match = /^\s*(\d{1,2})(?::?(\d{2}))?\s*(a|am|p|pm)?\.?\s*$/i.exec(
+    text.replace(/\./g, "").trim(),
+  );
   if (!match) return null;
-  const h = Number(match[1]);
-  const m = Number(match[2]);
-  if (h > 23 || m > 59) return null;
-  return h * 60 + m;
+  let hour = Number(match[1]);
+  const minute = match[2] === undefined ? 0 : Number(match[2]);
+  const suffix = match[3]?.toLowerCase();
+  if (minute > 59) return null;
+  if (suffix) {
+    if (hour < 1 || hour > 12) return null;
+    hour = (hour % 12) + (suffix.startsWith("p") ? 12 : 0);
+  } else if (hour > 23) {
+    return null;
+  }
+  return hour * 60 + minute;
 }
 
 /** Whether to show 24-hour times, following Home Assistant's profile setting. */

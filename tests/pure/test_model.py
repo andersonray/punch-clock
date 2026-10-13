@@ -174,3 +174,11 @@ def test_default_config_has_a_tab() -> None:
     assert config.settings.week_start == 6
     empty, _ = parse_config({})
     assert len(empty.tabs) == 1
+    assert empty.settings.temperature_unit == "°C"
+    assert empty.settings.time_format == "auto"
+
+
+def test_legacy_null_temperature_unit_means_celsius() -> None:
+    config, problems = parse_config({"settings": {"temperature_unit": None}})
+    assert problems == []
+    assert config.settings.temperature_unit == "°C"

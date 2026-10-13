@@ -23,6 +23,7 @@ from .model import (
     parse_settings,
     parse_tab,
 )
+from .units import convert_config
 
 
 class NotFoundError(ConfigError):
@@ -33,7 +34,9 @@ class LimitError(ConfigError):
     """A size limit would be exceeded."""
 
 
-SETTINGS_FIELDS = frozenset({"enabled", "week_start", "debounce_seconds", "temperature_unit"})
+SETTINGS_FIELDS = frozenset(
+    {"enabled", "week_start", "debounce_seconds", "temperature_unit", "time_format"}
+)
 TAB_FIELDS = frozenset({"name", "enabled", "conditions", "defaults"})
 BLOCK_FIELDS = frozenset(
     {"tab_id", "day", "start", "duration", "name", "color", "actions", "conditions"}
@@ -72,6 +75,8 @@ def _block(config: Config, block_id: str) -> Block:
 def update_settings(config: Config, changes: Mapping[str, Any]) -> Config:
     _check_fields(changes, SETTINGS_FIELDS, "changes")
     settings = parse_settings({**dump_settings(config.settings), **changes})
+    # Changing the unit converts every scheduled temperature, so nothing changes meaning.
+    config = convert_config(config, config.settings.temperature_unit, settings.temperature_unit)
     return _bump(config, settings=settings)
 
 

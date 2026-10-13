@@ -26,6 +26,28 @@ def test_settings() -> None:
         update_settings(config, {"week_start": 7})
 
 
+def test_changing_temperature_unit_converts_schedules() -> None:
+    config = default_config()
+    tab_id = config.tabs[0].id
+    item = {
+        "tab_id": tab_id,
+        "day": 0,
+        "start": 0,
+        "duration": 60,
+        "actions": [{"entity_id": "climate.x", "settings": {"temperature": 20}}],
+    }
+    config, _ = create_blocks(config, [item])
+    config = update_settings(config, {"temperature_unit": "°F"})
+    assert config.settings.temperature_unit == "°F"
+    assert config.blocks[0].actions[0].settings == {"temperature": 68.0}  # type: ignore[union-attr]
+    config = update_settings(config, {"time_format": "24"})
+    assert config.blocks[0].actions[0].settings == {"temperature": 68.0}  # type: ignore[union-attr]
+    with pytest.raises(ConfigError, match="must be one of"):
+        update_settings(config, {"temperature_unit": "K"})
+    with pytest.raises(ConfigError, match="must be one of"):
+        update_settings(config, {"time_format": "13"})
+
+
 def test_tab_lifecycle() -> None:
     config = default_config()
     first = config.tabs[0].id

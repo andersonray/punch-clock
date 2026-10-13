@@ -85,21 +85,49 @@ function enumSetting(
   return { key, label, control: { kind: "enum", options }, initial };
 }
 
-function temperatureLimits(attrs: Record<string, unknown>, unit: string) {
-  const fahrenheit = unit.includes("F");
+export interface TemperatureUnits {
+  /** Unit the schedule stores temperatures in (Punch Clock's setting). */
+  schedule: string;
+  /** Home Assistant's unit, used by entity attributes such as min_temp. */
+  ha: string;
+}
+
+const isFahrenheit = (unit: string): boolean => unit.includes("F");
+
+export function convertTemperature(value: number, from: string, to: string): number {
+  if (isFahrenheit(from) === isFahrenheit(to)) return value;
+  return isFahrenheit(to) ? (value * 9) / 5 + 32 : ((value - 32) * 5) / 9;
+}
+
+const roundTo = (value: number, step: number): number =>
+  Math.round(Math.round(value / step) * step * 1e6) / 1e6;
+
+/**
+ * Number control for a temperature, in the schedule's unit. Entity attributes are in
+ * Home Assistant's unit, so limits and the current value are converted when they differ.
+ */
+function temperatureControl(attrs: Record<string, unknown>, units: TemperatureUnits) {
+  const fahrenheit = isFahrenheit(units.schedule);
+  const same = isFahrenheit(units.ha) === fahrenheit;
+  const step = same ? num(attrs.target_temp_step, fahrenheit ? 1 : 0.5) : fahrenheit ? 1 : 0.5;
+  const convert = (value: unknown, fallback: number): number =>
+    typeof value === "number" && Number.isFinite(value)
+      ? convertTemperature(value, units.ha, units.schedule)
+      : fallback;
+  const min = Math.ceil(convert(attrs.min_temp, fahrenheit ? 45 : 7) / step - 1e-9) * step;
+  const max = Math.floor(convert(attrs.max_temp, fahrenheit ? 95 : 35) / step + 1e-9) * step;
   return {
-    min: num(attrs.min_temp, fahrenheit ? 45 : 7),
-    max: num(attrs.max_temp, fahrenheit ? 95 : 35),
-    step: num(attrs.target_temp_step, fahrenheit ? 1 : 0.5),
-    unit,
+    control: { kind: "number" as const, min, max, step, unit: units.schedule },
+    /** A current attribute value, converted and rounded to the step. */
+    value: (v: unknown, fallback: number) => roundTo(convert(v, fallback), step),
   };
 }
 
-function climate(entity: HassEntity, unit: string): SettingDescriptor[] {
+function climate(entity: HassEntity, units: TemperatureUnits): SettingDescriptor[] {
   const a = entity.attributes;
   const f = num(a.supported_features, 0);
-  const t = temperatureLimits(a, unit);
-  const mid = Math.round((t.min + t.max) / 2);
+  const t = temperatureControl(a, units);
+  const mid = roundTo((t.control.min + t.control.max) / 2, t.control.step);
   const out: (SettingDescriptor | null)[] = [
     enumSetting("hvac_mode", "Mode", strings(a.hvac_modes), entity.state),
     has(f, CLIMATE.PRESET)
@@ -109,8 +137,8 @@ function climate(entity: HassEntity, unit: string): SettingDescriptor[] {
       ? {
           key: "temperature",
           label: "Target temperature",
-          control: { kind: "number", ...t },
-          initial: num(a.temperature, mid),
+          control: t.control,
+          initial: t.value(a.temperature, mid),
           hint: "Used in every mode except heat/cool.",
         }
       : null,
@@ -118,10 +146,10 @@ function climate(entity: HassEntity, unit: string): SettingDescriptor[] {
       ? {
           key: "temp_range",
           label: "Temperature range",
-          control: { kind: "range", ...t },
+          control: { ...t.control, kind: "range" },
           initial: {
-            low: num(a.target_temp_low, mid - 2),
-            high: num(a.target_temp_high, mid + 2),
+            low: t.value(a.target_temp_low, mid - 2),
+            high: t.value(a.target_temp_high, mid + 2),
           },
           hint: "Used in heat/cool mode.",
         }
@@ -158,10 +186,10 @@ function climate(entity: HassEntity, unit: string): SettingDescriptor[] {
   return out.filter((d): d is SettingDescriptor => d !== null);
 }
 
-function waterHeater(entity: HassEntity, unit: string): SettingDescriptor[] {
+function waterHeater(entity: HassEntity, units: TemperatureUnits): SettingDescriptor[] {
   const a = entity.attributes;
   const f = num(a.supported_features, 0);
-  const t = temperatureLimits(a, unit);
+  const t = temperatureControl(a, units);
   const out: (SettingDescriptor | null)[] = [
     has(f, WATER_HEATER.ON_OFF)
       ? enumSetting("state", "Power", ON_OFF, entity.state === "off" ? "off" : "on")
@@ -173,8 +201,8 @@ function waterHeater(entity: HassEntity, unit: string): SettingDescriptor[] {
       ? {
           key: "temperature",
           label: "Target temperature",
-          control: { kind: "number", ...t },
-          initial: num(a.temperature, t.min),
+          control: t.control,
+          initial: t.value(a.temperature, t.control.min),
         }
       : null,
     has(f, WATER_HEATER.AWAY_MODE)
@@ -354,13 +382,13 @@ function mediaPlayer(entity: HassEntity): SettingDescriptor[] {
 }
 
 /** The settings an entity action can set on this entity. */
-export function describe(entity: HassEntity, temperatureUnit: string): SettingDescriptor[] {
+export function describe(entity: HassEntity, units: TemperatureUnits): SettingDescriptor[] {
   const a = entity.attributes;
   switch (domainOf(entity.entity_id)) {
     case "climate":
-      return climate(entity, temperatureUnit);
+      return climate(entity, units);
     case "water_heater":
-      return waterHeater(entity, temperatureUnit);
+      return waterHeater(entity, units);
     case "humidifier":
       return humidifier(entity);
     case "fan":

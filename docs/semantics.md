@@ -129,6 +129,19 @@ Desired state is recomputed on:
 - a target entity becoming available while a write to it is pending;
 - a 15-minute safety tick, which is idempotent.
 
+## Temperature units
+
+- Scheduled temperatures (climate `temperature` and `temp_range`, water heater `temperature`)
+  are stored in the unit chosen in Punch Clock's settings: `settings.temperature_unit`, °C by
+  default.
+- Entities report and accept temperatures in Home Assistant's unit. When writing and when
+  checking whether an entity already has the desired value, Punch Clock converts from the
+  schedule's unit to Home Assistant's, then clamps and rounds to the entity's limits and step.
+- Changing `settings.temperature_unit` converts every stored temperature, rounded to one
+  decimal, so a schedule keeps its meaning.
+- Conditions are not converted. They compare against the entity's raw values, which are in
+  Home Assistant's unit.
+
 ## Errors and safety
 
 - Values are clamped to the entity's live min/max and rounded to its step. Enum values that

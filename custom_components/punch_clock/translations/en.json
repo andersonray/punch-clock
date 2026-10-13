@@ -36,10 +36,6 @@
     "write_budget": {
       "title": "Punch Clock paused writes to {target}",
       "description": "Punch Clock changed {target} more than 6 times in 10 minutes, so it stopped writing to it for 10 minutes. This usually means a block's conditions keep switching between true and false, for example because a condition checks an entity that the same schedule controls. Review the conditions in the Punch Clock panel."
-    },
-    "temperature_unit_changed": {
-      "title": "Temperature unit changed",
-      "description": "Home Assistant's temperature unit changed from {old} to {new}. Punch Clock doesn't convert scheduled temperatures. Review the temperatures in your schedules, then dismiss this message."
     }
   }
 }

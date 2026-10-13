@@ -7,17 +7,13 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import Event, HomeAssistant, callback
-from homeassistant.helpers import (
-    config_validation as cv,
-    entity_registry as er,
-    issue_registry as ir,
-)
+from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
 from . import websocket_api
-from .const import DOMAIN, ISSUE_UNIT_CHANGED
+from .const import DOMAIN
 from .engine import PunchClockEngine
 from .logic import mutations
 from .logic.refs import entity_references, rename_entity
@@ -50,7 +46,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: PunchClockConfigEntry) -
     integration = await async_get_integration(hass, DOMAIN)
     store = PunchClockStore(hass)
     await store.async_load()
-    _check_temperature_unit(hass, store)
 
     engine = PunchClockEngine(hass, store)
     entry.runtime_data = PunchClockData(entry, store, engine, str(integration.version))
@@ -116,24 +111,3 @@ def _tab_id_from_unique_id(entry_id: str, unique_id: str) -> str | None:
     if not unique_id.startswith(prefix):
         return None
     return unique_id[len(prefix) :].rsplit("_", 1)[0]
-
-
-@callback
-def _check_temperature_unit(hass: HomeAssistant, store: PunchClockStore) -> None:
-    """Warn once if Home Assistant's temperature unit changed since schedules were made."""
-    unit = hass.config.units.temperature_unit
-    saved = store.config.settings.temperature_unit
-    if saved == unit:
-        return
-    if saved is not None:
-        ir.async_create_issue(
-            hass,
-            DOMAIN,
-            ISSUE_UNIT_CHANGED,
-            is_fixable=False,
-            is_persistent=True,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key=ISSUE_UNIT_CHANGED,
-            translation_placeholders={"old": saved, "new": unit},
-        )
-    store.async_mutate(lambda c: (mutations.update_settings(c, {"temperature_unit": unit}), None))

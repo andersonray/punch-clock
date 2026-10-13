@@ -8,12 +8,14 @@ export interface LocalPrefs {
   hourHeight: number;
   /** Hour to scroll to when opening; -1 = an hour before now. */
   initialHour: number;
+  /** Width of the block editor beside the calendar, in pixels. */
+  editorWidth: number;
 }
 
 export const HOUR_HEIGHTS = [32, 48, 64, 96];
 
 /**
- * Settings: week start and debounce (stored in Home Assistant), plus display
+ * Settings: week start, units and debounce (stored in Home Assistant), plus display
  * preferences kept in this browser. Fires `settings-change` ({ changes }),
  * `prefs-change` ({ prefs }), `reapply` and `closed`.
  */
@@ -92,6 +94,47 @@ export class PcSettingsDialog extends LitElement {
             >The first change is handled right away; further changes within this time are
             combined.</span
           >
+        </label>
+
+        <h3>Units</h3>
+        <label
+          >Temperature
+          <select
+            @change=${(e: Event) =>
+              this.fire("settings-change", {
+                changes: { temperature_unit: (e.target as HTMLSelectElement).value },
+              })}
+          >
+            <option value="°C" ?selected=${this.settings.temperature_unit === "°C"}>
+              Celsius (°C)
+            </option>
+            <option value="°F" ?selected=${this.settings.temperature_unit === "°F"}>
+              Fahrenheit (°F)
+            </option>
+          </select>
+          <span class="muted hint"
+            >Unit for the target temperatures you schedule. Changing it converts the temperatures
+            already in your schedules.</span
+          >
+        </label>
+        <label
+          >Clock
+          <select
+            @change=${(e: Event) =>
+              this.fire("settings-change", {
+                changes: { time_format: (e.target as HTMLSelectElement).value },
+              })}
+          >
+            <option value="auto" ?selected=${this.settings.time_format === "auto"}>
+              Same as my Home Assistant profile
+            </option>
+            <option value="12" ?selected=${this.settings.time_format === "12"}>
+              12-hour (1:30 PM)
+            </option>
+            <option value="24" ?selected=${this.settings.time_format === "24"}>
+              24-hour (13:30)
+            </option>
+          </select>
         </label>
 
         <h3>This browser</h3>

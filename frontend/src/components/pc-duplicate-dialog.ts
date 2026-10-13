@@ -7,12 +7,11 @@ import {
   displayDays,
   durationBetween,
   formatDuration,
-  parseTimeInput,
   stopMinute,
-  toTimeInput,
 } from "../logic/time";
 import { controls } from "../styles";
 import "./pc-dialog";
+import "./pc-time-input";
 
 /**
  * Duplicate a block to one or more days, optionally into another tab. Fires
@@ -25,6 +24,7 @@ export class PcDuplicateDialog extends LitElement {
     tabs: { attribute: false },
     weekStart: { type: Number },
     language: {},
+    use24h: { type: Boolean },
     _days: { state: true },
     _start: { state: true },
     _stop: { state: true },
@@ -36,6 +36,7 @@ export class PcDuplicateDialog extends LitElement {
   declare tabs: Tab[];
   declare weekStart: number;
   declare language: string;
+  declare use24h: boolean;
   declare _days: Set<number>;
   declare _start: number;
   declare _stop: number;
@@ -48,6 +49,7 @@ export class PcDuplicateDialog extends LitElement {
     this.tabs = [];
     this.weekStart = 6;
     this.language = "en";
+    this.use24h = false;
     this._days = new Set();
     this._start = 0;
     this._stop = 60;
@@ -118,27 +120,21 @@ export class PcDuplicateDialog extends LitElement {
       <div class="times">
         <label
           >Start
-          <input
-            type="time"
-            step="60"
-            .value=${toTimeInput(this._start)}
-            @change=${(e: Event) => {
-              const v = parseTimeInput((e.target as HTMLInputElement).value);
-              if (v !== null) this._start = v;
-            }}
-          />
+          <pc-time-input
+            label="Start"
+            .value=${this._start}
+            ?use24h=${this.use24h}
+            @value-changed=${(e: CustomEvent<{ value: number }>) => (this._start = e.detail.value)}
+          ></pc-time-input>
         </label>
         <label
           >Stop
-          <input
-            type="time"
-            step="60"
-            .value=${toTimeInput(this._stop)}
-            @change=${(e: Event) => {
-              const v = parseTimeInput((e.target as HTMLInputElement).value);
-              if (v !== null) this._stop = v;
-            }}
-          />
+          <pc-time-input
+            label="Stop"
+            .value=${this._stop}
+            ?use24h=${this.use24h}
+            @value-changed=${(e: CustomEvent<{ value: number }>) => (this._stop = e.detail.value)}
+          ></pc-time-input>
         </label>
         ${
           this.tabs.length > 1

@@ -7,7 +7,12 @@ import type {
   ServiceAction,
   SettingValue,
 } from "../types";
-import { ACTION_DOMAINS, describe, type SettingDescriptor } from "../logic/capabilities";
+import {
+  ACTION_DOMAINS,
+  describe,
+  type SettingDescriptor,
+  type TemperatureUnits,
+} from "../logic/capabilities";
 import { controls } from "../styles";
 import { icon, mdiDelete } from "../icons";
 import "./pc-entity-picker";
@@ -26,7 +31,7 @@ export class PcActionEditor extends LitElement {
   static override properties = {
     hass: { attribute: false },
     action: { attribute: false },
-    temperatureUnit: {},
+    units: { attribute: false },
     entityOnly: { type: Boolean },
     _dataText: { state: true },
     _dataError: { state: true },
@@ -34,7 +39,7 @@ export class PcActionEditor extends LitElement {
 
   declare hass: HomeAssistant;
   declare action: Action;
-  declare temperatureUnit: string;
+  declare units: TemperatureUnits;
   /** Hide the generic service option (used for tab defaults). */
   declare entityOnly: boolean;
   declare _dataText: string | null;
@@ -42,7 +47,7 @@ export class PcActionEditor extends LitElement {
 
   constructor() {
     super();
-    this.temperatureUnit = "°C";
+    this.units = { schedule: "°C", ha: "°C" };
     this.entityOnly = false;
     this._dataText = null;
     this._dataError = "";
@@ -174,7 +179,7 @@ export class PcActionEditor extends LitElement {
 
   private renderEntityAction(action: EntityAction): TemplateResult {
     const entity = action.entity_id ? this.hass.states[action.entity_id] : undefined;
-    const descriptors = entity ? describe(entity, this.temperatureUnit) : [];
+    const descriptors = entity ? describe(entity, this.units) : [];
     const known = new Set(descriptors.map((d) => d.key));
     const unknownKeys = Object.keys(action.settings).filter((k) => !known.has(k));
     return html`

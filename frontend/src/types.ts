@@ -68,7 +68,10 @@ export interface Settings {
   /** 0 = Monday ... 6 = Sunday */
   week_start: number;
   debounce_seconds: number;
-  temperature_unit: string | null;
+  /** Unit the schedule's temperatures are written in. */
+  temperature_unit: string;
+  /** "auto" follows the Home Assistant profile. */
+  time_format: "auto" | "12" | "24";
 }
 
 export interface Config {

@@ -14,7 +14,8 @@ const fixtures = JSON.parse(
 ) as Record<string, { state: string; attributes: Record<string, unknown> }>;
 
 const entity = (id: string): HassEntity => ({ entity_id: id, ...fixtures[id]! });
-const keys = (id: string, unit = "°F") => describeEntity(entity(id), unit).map((d) => d.key);
+const units = (unit: string) => ({ schedule: unit, ha: unit });
+const keys = (id: string, unit = "°F") => describeEntity(entity(id), units(unit)).map((d) => d.key);
 
 describe("describe", () => {
   it("offers climate settings from features and attributes", () => {
@@ -25,11 +26,25 @@ describe("describe", () => {
       "fan_mode",
       "swing_mode",
     ]);
-    const temperature = describeEntity(entity("climate.hvac"), "°C").find(
+    const temperature = describeEntity(entity("climate.hvac"), units("°C")).find(
       (d) => d.key === "temperature",
     )!;
     expect(temperature.control).toEqual({ kind: "number", min: 7, max: 35, step: 0.5, unit: "°C" });
     expect(temperature.initial).toBe(21);
+  });
+
+  it("shows temperatures in the schedule's unit", () => {
+    // climate.hvac reports °C (min 7, max 35, current 21); the schedule uses °F.
+    const temperature = describeEntity(entity("climate.hvac"), { schedule: "°F", ha: "°C" }).find(
+      (d) => d.key === "temperature",
+    )!;
+    expect(temperature.control).toEqual({ kind: "number", min: 45, max: 95, step: 1, unit: "°F" });
+    expect(temperature.initial).toBe(70);
+    const back = describeEntity(entity("climate.ecobee"), { schedule: "°C", ha: "°F" }).find(
+      (d) => d.key === "temp_range",
+    )!;
+    expect(back.control).toMatchObject({ min: 7.5, max: 35, step: 0.5, unit: "°C" });
+    expect(back.initial).toEqual({ low: 20, high: 24 });
   });
 
   it("offers light settings by color mode", () => {
@@ -41,7 +56,7 @@ describe("describe", () => {
       "effect",
     ]);
     expect(keys("light.porch")).toEqual(["state", "brightness_pct"]);
-    const brightness = describeEntity(entity("light.living_room"), "").find(
+    const brightness = describeEntity(entity("light.living_room"), units("°C")).find(
       (d) => d.key === "brightness_pct",
     )!;
     expect(brightness.initial).toBe(71);
@@ -79,7 +94,9 @@ describe("describe", () => {
   it("only lists supported domains", () => {
     expect(isActionDomain("climate")).toBe(true);
     expect(isActionDomain("sensor")).toBe(false);
-    expect(describeEntity({ entity_id: "sensor.x", state: "1", attributes: {} }, "")).toEqual([]);
+    expect(
+      describeEntity({ entity_id: "sensor.x", state: "1", attributes: {} }, units("°C")),
+    ).toEqual([]);
   });
 });
 

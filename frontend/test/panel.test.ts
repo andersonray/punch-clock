@@ -32,7 +32,13 @@ function makeConfig(): Config {
   return {
     revision: 1,
     seq: 2,
-    settings: { enabled: true, week_start: 6, debounce_seconds: 2, temperature_unit: "°C" },
+    settings: {
+      enabled: true,
+      week_start: 6,
+      debounce_seconds: 2,
+      temperature_unit: "°C",
+      time_format: "auto",
+    },
     tabs: [
       { id: "t_1", name: "Week", enabled: true, conditions: emptyGroup("g_t1"), defaults: [] },
       { id: "t_2", name: "Vacation", enabled: false, conditions: emptyGroup("g_t2"), defaults: [] },
@@ -84,6 +90,7 @@ interface Fake {
 }
 
 function fakeHass(config: Config): Fake {
+  localStorage.clear();
   const calls: Record<string, unknown>[] = [];
   const hass = {
     states: {
@@ -148,8 +155,10 @@ const shadow = (el: Element | null | undefined) => (el as HTMLElement).shadowRoo
 let el: PunchClockPanel;
 let fake: Fake;
 
-async function mount(): Promise<void> {
-  fake = fakeHass(makeConfig());
+async function mount(adjust: (config: Config) => void = () => {}): Promise<void> {
+  const config = makeConfig();
+  adjust(config);
+  fake = fakeHass(config);
   el = document.createElement("punch-clock-panel");
   el.hass = fake.hass;
   document.body.append(el);
@@ -232,7 +241,7 @@ describe("punch-clock-panel", () => {
     const ed = editor()!;
     expect(ed._draft.actions).toHaveLength(0);
 
-    // Start picking, then click the source block. The target is empty, so no confirmation.
+    // Start picking, then click the source block. The target has a name, so it asks first.
     shadow(ed).querySelector<HTMLButtonElement>('[aria-label^="Copy actions"]')!.click();
     await settle(el);
     expect(weekView().picking).toBe(true);
@@ -240,8 +249,14 @@ describe("punch-clock-panel", () => {
       .find((b) => b.textContent?.includes("Morning"))!
       .click();
     await settle(el);
+    const ask = shadow(el).querySelector("pc-confirm-dialog")!;
+    [...shadow(ask).querySelectorAll("button")]
+      .find((b) => b.textContent?.includes("Replace"))!
+      .click();
+    await settle(el);
     expect(ed._draft.actions).toHaveLength(1);
     expect(ed._draft.actions[0]!.id).not.toBe("a_1");
+    expect(ed._draft.name).toBe("Morning");
     expect(ed._draft.conditions.items).toHaveLength(1);
     expect(ed.dirty).toBe(true);
 
@@ -259,6 +274,151 @@ describe("punch-clock-panel", () => {
     replace.click();
     await settle(el);
     expect(ed._draft.actions).toHaveLength(0);
+    expect(ed._draft.name).toBe("Night");
+  });
+
+  it("copies the name and color with the eyedropper and shows them right away", async () => {
+    await mount((config) => {
+      config.blocks.find((b) => b.id === "b_morning")!.color = "#8e24aa";
+    });
+    blocks()
+      .find((b) => b.textContent?.includes("Target"))!
+      .click();
+    await settle(el);
+    const ed = editor()!;
+    shadow(ed).querySelector<HTMLButtonElement>('[aria-label^="Copy actions"]')!.click();
+    await settle(el);
+    blocks()
+      .find((b) => b.textContent?.includes("Morning"))!
+      .click();
+    await settle(el);
+    // "Target" has a name, so it asks first.
+    const confirm = shadow(el).querySelector("pc-confirm-dialog")!;
+    [...shadow(confirm).querySelectorAll("button")]
+      .find((b) => b.textContent?.includes("Replace"))!
+      .click();
+    await settle(el);
+    expect(ed._draft).toMatchObject({ name: "Morning", color: "#8e24aa" });
+    // The calendar shows the copied name and color before saving.
+    const morningBlocks = blocks().filter((b) => b.textContent?.includes("Morning"));
+    expect(morningBlocks).toHaveLength(2);
+    expect(morningBlocks.every((b) => b.getAttribute("style")?.includes("#8e24aa"))).toBe(true);
+    expect(fake.calls.some((c) => c.type === "punch_clock/blocks/update")).toBe(false);
+  });
+
+  it("previews a new color immediately and a new name after leaving the field", async () => {
+    await mount();
+    blocks()
+      .find((b) => b.textContent?.includes("Target"))!
+      .click();
+    await settle(el);
+    const ed = editor()!;
+    const target = () => blocks().find((b) => b.getAttribute("style")?.includes("top:480px"))!;
+    shadow(ed).querySelector<HTMLButtonElement>('.swatch[aria-label="#33b679"]')!.click();
+    await settle(el);
+    expect(target().getAttribute("style")).toContain("#33b679");
+
+    const name = shadow(ed).querySelector<HTMLInputElement>(".name")!;
+    name.value = "Lunch";
+    name.dispatchEvent(new Event("input"));
+    await settle(el);
+    expect(target().textContent).toContain("Target"); // not until the field loses focus
+    name.dispatchEvent(new Event("change"));
+    await settle(el);
+    expect(target().textContent).toContain("Lunch");
+
+    // Discarding puts the saved name and color back.
+    [...shadow(ed).querySelectorAll("button")]
+      .find((b) => b.textContent?.trim() === "Discard")!
+      .click();
+    await settle(el);
+    expect(target().textContent).toContain("Target");
+    expect(target().getAttribute("style")).toContain("#039be5");
+  });
+
+  it("resizes the editor by dragging the divider or with the keyboard", async () => {
+    await mount();
+    blocks()
+      .find((b) => b.textContent?.includes("Morning"))!
+      .click();
+    await settle(el);
+    const main = shadow(el).querySelector<HTMLElement>(".main")!;
+    Object.defineProperty(main, "clientWidth", { value: 1400 });
+    main.getBoundingClientRect = () =>
+      ({ left: 0, right: 1400, top: 0, bottom: 800, width: 1400, height: 800 }) as DOMRect;
+    const splitter = shadow(el).querySelector<HTMLElement>(".splitter")!;
+    const pane = () => shadow(el).querySelector<HTMLElement>(".editor-pane")!;
+    expect(pane().getAttribute("style")).toContain("--editor-width:460px");
+
+    const pointer = (type: string, x: number) =>
+      splitter.dispatchEvent(
+        new PointerEvent(type, { clientX: x, button: 0, pointerId: 1, bubbles: true }),
+      );
+    pointer("pointerdown", 940);
+    pointer("pointermove", 700);
+    pointer("pointerup", 700);
+    await settle(el);
+    expect(pane().getAttribute("style")).toContain("--editor-width:700px");
+    expect(JSON.parse(localStorage.getItem("punch-clock:prefs")!).editorWidth).toBe(700);
+
+    pointer("pointerdown", 700);
+    pointer("pointermove", 50); // would hide the calendar: clamped
+    pointer("pointerup", 50);
+    await settle(el);
+    expect(pane().getAttribute("style")).toContain("--editor-width:1240px");
+
+    splitter.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    await settle(el);
+    expect(pane().getAttribute("style")).toContain("--editor-width:340px");
+    splitter.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    await settle(el);
+    expect(pane().getAttribute("style")).toContain("--editor-width:372px");
+  });
+
+  it("edits start and stop times in the chosen clock style", async () => {
+    await mount((config) => (config.settings.time_format = "24"));
+    blocks()
+      .find((b) => b.textContent?.includes("Morning"))!
+      .click();
+    await settle(el);
+    const ed = editor()!;
+    const [start, stop] = [...shadow(ed).querySelectorAll("pc-time-input")].map((t) =>
+      shadow(t).querySelector("input")!,
+    );
+    expect(start!.value).toBe("06:00");
+    expect(stop!.value).toBe("08:00");
+
+    start!.value = "6:15 pm";
+    start!.dispatchEvent(new Event("change"));
+    await settle(el);
+    expect(ed._draft.start).toBe(1095);
+    expect(start!.value).toBe("18:15");
+    // The stop time stays 08:00, so the block now runs past midnight.
+    expect(ed._draft.duration).toBe(825);
+
+    stop!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", shiftKey: true }));
+    await settle(el);
+    expect(ed._draft.duration).toBe(840);
+
+    start!.value = "25:00";
+    start!.dispatchEvent(new Event("change"));
+    await settle(el);
+    expect(ed._draft.start).toBe(1095);
+    expect(start!.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("uses the clock setting for times", async () => {
+    await mount((config) => (config.settings.time_format = "24"));
+    const labels = [...shadow(weekView()).querySelectorAll(".gutter span")].map(
+      (s) => s.textContent,
+    );
+    expect(labels).toContain("13:00");
+    el.remove();
+    await mount((config) => (config.settings.time_format = "12"));
+    const twelve = [...shadow(weekView()).querySelectorAll(".gutter span")].map(
+      (s) => s.textContent,
+    );
+    expect(twelve).toContain("1 PM");
   });
 
   it("duplicates a block to several days", async () => {

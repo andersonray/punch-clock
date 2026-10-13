@@ -28,9 +28,14 @@ MAX_VALUE_LENGTH = 255
 DEFAULT_WEEK_START = 6  # Sunday (0 = Monday)
 DEFAULT_DEBOUNCE_SECONDS = 2.0
 DEFAULT_COLOR = "#039be5"
+CELSIUS = "°C"
+FAHRENHEIT = "°F"
+TEMPERATURE_UNITS: tuple[str, ...] = (CELSIUS, FAHRENHEIT)
+TIME_FORMATS: tuple[str, ...] = ("auto", "12", "24")
 
 type Operator = Literal["is", "is_not", "gt", "lt"]
 type GroupMode = Literal["all", "any"]
+type TimeFormat = Literal["auto", "12", "24"]
 OPERATORS: tuple[str, ...] = ("is", "is_not", "gt", "lt")
 GROUP_MODES: tuple[str, ...] = ("all", "any")
 
@@ -126,7 +131,10 @@ class Settings:
     enabled: bool = True
     week_start: int = DEFAULT_WEEK_START
     debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS
-    temperature_unit: str | None = None
+    temperature_unit: str = CELSIUS
+    """Unit the schedule's temperatures are written in (converted to HA's unit on write)."""
+    time_format: TimeFormat = "auto"
+    """Clock shown in the panel: "auto" follows the user's Home Assistant profile."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,9 +466,12 @@ def parse_block(
 
 def parse_settings(data: Any, path: str = "settings") -> Settings:
     m = _mapping(data if data is not None else {}, path)
-    unit = m.get("temperature_unit")
-    if unit is not None and not isinstance(unit, str):
-        raise ConfigError(f"{path}.temperature_unit", "must be a string")
+    unit = m.get("temperature_unit") or CELSIUS
+    if unit not in TEMPERATURE_UNITS:
+        raise ConfigError(f"{path}.temperature_unit", f"must be one of {list(TEMPERATURE_UNITS)}")
+    time_format = m.get("time_format", "auto")
+    if time_format not in TIME_FORMATS:
+        raise ConfigError(f"{path}.time_format", f"must be one of {list(TIME_FORMATS)}")
     return Settings(
         enabled=_bool(m, "enabled", path, default=True),
         week_start=_int(m, "week_start", path, 0, 6, default=DEFAULT_WEEK_START),
@@ -468,6 +479,7 @@ def parse_settings(data: Any, path: str = "settings") -> Settings:
             m, "debounce_seconds", path, 0, 60, default=DEFAULT_DEBOUNCE_SECONDS
         ),
         temperature_unit=unit,
+        time_format=cast(TimeFormat, time_format),
     )
 
 
@@ -616,6 +628,7 @@ def dump_settings(settings: Settings) -> dict[str, Any]:
         "week_start": settings.week_start,
         "debounce_seconds": settings.debounce_seconds,
         "temperature_unit": settings.temperature_unit,
+        "time_format": settings.time_format,
     }
 
 

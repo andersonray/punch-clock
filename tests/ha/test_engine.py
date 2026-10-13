@@ -97,6 +97,30 @@ async def test_block_applies_then_default_returns(
     )
 
 
+async def test_fahrenheit_schedule_is_converted_for_a_celsius_home(
+    hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
+) -> None:
+    hass.states.async_set(CLIMATE, "heat", CLIMATE_ATTRS)
+    hass_storage[STORAGE_KEY_CONFIG] = stored_config(
+        temperature_unit="°F", blocks=[climate_block(temperature=70)]
+    )
+    calls = record(hass, "climate.set_temperature")
+    await setup_integration(hass)
+    await move_to(hass, freezer, START + timedelta(hours=1))
+    assert temps(calls) == [21.1]  # 70 °F, rounded to the default 0.1 step
+
+    # Once the entity reports the converted value, it counts as matching (no rewrite).
+    hass.states.async_set(CLIMATE, "heat", {**CLIMATE_ATTRS, "temperature": 21.1})
+    await hass.services.async_call(
+        "switch", "turn_off", {"entity_id": "switch.punch_clock_enabled"}, blocking=True
+    )
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": "switch.punch_clock_enabled"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert temps(calls) == [21.1]
+
+
 async def test_climate_mode_is_set_before_temperature(
     hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
 ) -> None:
