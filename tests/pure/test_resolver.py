@@ -1,4 +1,5 @@
 from logic.resolver import (
+    BlockState,
     Source,
     block_values,
     controlled_entities,
@@ -149,6 +150,19 @@ def test_block_conditions() -> None:
     assert res.blocks["b"].in_window
     assert not res.blocks["b"].conditions_met
     assert value(resolve(cfg, 10, lookup({"input_boolean.guests": "on"})), (T, "temperature")) == 72
+
+
+def test_block_conditions_reported_outside_the_window() -> None:
+    guests = cond("input_boolean.guests", "is", "on")
+    cfg = config(
+        blocks=(
+            block("guarded", start=hm(18), duration=60, conditions=all_of(guests)),
+            block("plain", start=hm(20), duration=60),
+        )
+    )
+    res = resolve(cfg, wm(0, 9), lookup({"input_boolean.guests": "off"}))
+    assert res.blocks["guarded"] == BlockState(in_window=False, conditions_met=False, active=False)
+    assert res.blocks["plain"] == BlockState(in_window=False, conditions_met=True, active=False)
 
 
 def test_later_action_in_block_overrides() -> None:

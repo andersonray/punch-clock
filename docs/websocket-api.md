@@ -40,8 +40,9 @@ condition and action IDs are always regenerated, so duplicated blocks never shar
 
 - `enabled`, `started`, `evaluated_at`, `next_boundary`
 - `tabs`: `{tab_id: {enabled, conditions_met, active}}`
-- `blocks`: `{block_id: {in_window, conditions_met, active}}`, only for blocks that are
-  in their time window
+- `blocks`: `{block_id: {in_window, conditions_met, active}}` for every block. The
+  conditions are evaluated even outside a block's time window, so the panel can mark
+  blocks that wouldn't run right now.
 - `desired`: `[{entity_id, key, value, source: {kind, tab_id, block_id}}]`
 - `pending`: entities waiting to become available
 - `suppressed`: entities whose writes are paused by the write budget

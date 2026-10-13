@@ -184,12 +184,13 @@ export class PcBlockEditor extends LitElement {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
 
-  private async save(): Promise<void> {
+  /** Save the draft. Returns false (and shows why in the editor) if it couldn't be saved. */
+  async save(): Promise<boolean> {
     const draft = this._draft;
     const problems = [...actionProblems(draft.actions), ...conditionProblems(draft.conditions)];
     if (problems.length) {
       this._error = problems.join(" ");
-      return;
+      return false;
     }
     this._saving = true;
     try {
@@ -204,8 +205,10 @@ export class PcBlockEditor extends LitElement {
       });
       this.baseline = JSON.stringify(draft);
       this._error = "";
+      return true;
     } catch (err) {
       this._error = errorMessage(err);
+      return false;
     } finally {
       this._saving = false;
     }
@@ -240,6 +243,9 @@ export class PcBlockEditor extends LitElement {
       kind = "warn";
     } else if (state?.in_window) {
       text = "In its time window, but its conditions are false.";
+      kind = "warn";
+    } else if (state && !state.conditions_met) {
+      text = "Not running now. Its conditions aren't met right now either, so it wouldn't run.";
       kind = "warn";
     }
     return html`<div class="status ${kind}">${text}</div>`;

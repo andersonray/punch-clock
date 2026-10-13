@@ -59,7 +59,11 @@ Open **Punch Clock** in the sidebar.
   earlier than the start ends the next day), actions and conditions. Click a start or stop time to
   pick it on a clock dial: choose the hour, then the minute (the keyboard icon lets you type it
   instead). A new color, day or time shows in the calendar right away, and a new name once you
-  leave the name field, but nothing is kept until you click **Save**. To make the editor wider or narrower, drag the divider between it and the
+  leave the name field, but nothing is kept until you click **Save**. If you click away with
+  unsaved changes, you can save them, discard them, or go back.
+- **Which blocks would run.** A block whose conditions aren't met right now is drawn faded and
+  hatched, with a dashed edge and a crossed-out filter icon. When a whole tab isn't running
+  (turned off, or its conditions are false), all its blocks are faded. To make the editor wider or narrower, drag the divider between it and the
   calendar (double-click the divider to reset it).
 - **Actions.** Pick an entity, then tick each value the block should set. The values on offer
   depend on what the entity supports.

@@ -71,7 +71,7 @@ function makeConfig(): Config {
   };
 }
 
-const status: Status = {
+const makeStatus = (): Status => ({
   enabled: true,
   started: true,
   evaluated_at: null,
@@ -82,14 +82,14 @@ const status: Status = {
   pending: [],
   suppressed: [],
   errors: [],
-};
+});
 
 interface Fake {
   hass: HomeAssistant;
   calls: Record<string, unknown>[];
 }
 
-function fakeHass(config: Config): Fake {
+function fakeHass(config: Config, status: Status = makeStatus()): Fake {
   localStorage.clear();
   const calls: Record<string, unknown>[] = [];
   const hass = {
@@ -155,10 +155,15 @@ const shadow = (el: Element | null | undefined) => (el as HTMLElement).shadowRoo
 let el: PunchClockPanel;
 let fake: Fake;
 
-async function mount(adjust: (config: Config) => void = () => {}): Promise<void> {
+async function mount(
+  adjust: (config: Config) => void = () => {},
+  adjustStatus: (status: Status) => void = () => {},
+): Promise<void> {
   const config = makeConfig();
   adjust(config);
-  fake = fakeHass(config);
+  const status = makeStatus();
+  adjustStatus(status);
+  fake = fakeHass(config, status);
   el = document.createElement("punch-clock-panel");
   el.hass = fake.hass;
   document.body.append(el);
@@ -522,6 +527,99 @@ describe("punch-clock-panel", () => {
     await settle(el);
     expect(column(3)).toContain("Target");
     expect(column(5)).not.toContain("Target");
+  });
+
+  it("marks blocks whose conditions aren't met right now", async () => {
+    await mount(undefined, (status) => {
+      status.blocks = {
+        b_morning: { in_window: false, conditions_met: false, active: false },
+        b_target: { in_window: false, conditions_met: true, active: false },
+      };
+    });
+    const morning = blocks().find((b) => b.textContent?.includes("Morning"))!;
+    const target = blocks().find((b) => b.textContent?.includes("Target"))!;
+    expect(morning.classList.contains("unmet")).toBe(true);
+    expect(morning.querySelector(".unmet-badge")).not.toBeNull();
+    expect(morning.getAttribute("aria-label")).toContain("conditions not met right now");
+    expect(target.classList.contains("unmet")).toBe(false);
+    expect(shadow(weekView()).querySelector(".scroller")!.classList.contains("tab-off")).toBe(
+      false,
+    );
+  });
+
+  it("fades every block when the tab isn't running", async () => {
+    await mount(undefined, (status) => {
+      status.tabs.t_1 = { enabled: true, conditions_met: false, active: false };
+    });
+    expect(shadow(weekView()).querySelector(".scroller")!.classList.contains("tab-off")).toBe(true);
+  });
+
+  it("offers to save unsaved changes when leaving a block", async () => {
+    await mount();
+    blocks()
+      .find((b) => b.textContent?.includes("Target"))!
+      .click();
+    await settle(el);
+    const ed = editor()!;
+    shadow(ed).querySelector<HTMLButtonElement>('.swatch[aria-label="#33b679"]')!.click();
+    await settle(el);
+    expect(ed.dirty).toBe(true);
+
+    const confirm = shadow(el).querySelector("pc-confirm-dialog")!;
+    const choose = async (label: string) => {
+      [...shadow(confirm).querySelectorAll("button")]
+        .find((b) => b.textContent?.trim() === label)!
+        .click();
+      await settle(el);
+    };
+    const leave = async () => {
+      blocks()
+        .find((b) => b.textContent?.includes("Morning"))!
+        .click();
+      await settle(el);
+    };
+
+    // Cancel stays on the block with the changes kept.
+    await leave();
+    expect(
+      [...shadow(confirm).querySelectorAll("button")].map((b) => b.textContent?.trim()),
+    ).toEqual(["Cancel", "Discard", "Save"]);
+    await choose("Cancel");
+    expect(editor()!._draft.id).toBe("b_target");
+    expect(editor()!.dirty).toBe(true);
+
+    // Save writes the block, then moves on.
+    await leave();
+    await choose("Save");
+    const update = fake.calls.find((c) => c.type === "punch_clock/blocks/update")!;
+    expect(update).toMatchObject({ block_id: "b_target", changes: { color: "#33b679" } });
+    expect(editor()!._draft.id).toBe("b_morning");
+  });
+
+  it("stays on the block if saving from the prompt fails", async () => {
+    await mount();
+    blocks()
+      .find((b) => b.textContent?.includes("Target"))!
+      .click();
+    await settle(el);
+    const ed = editor()!;
+    // An action without an entity can't be saved.
+    [...shadow(ed).querySelectorAll("button")]
+      .find((b) => b.textContent?.includes("Entity action"))!
+      .click();
+    await settle(el);
+    blocks()
+      .find((b) => b.textContent?.includes("Morning"))!
+      .click();
+    await settle(el);
+    const confirm = shadow(el).querySelector("pc-confirm-dialog")!;
+    [...shadow(confirm).querySelectorAll("button")]
+      .find((b) => b.textContent?.trim() === "Save")!
+      .click();
+    await settle(el);
+    expect(editor()!._draft.id).toBe("b_target");
+    expect(shadow(editor()).querySelector(".error-text")?.textContent).toContain("needs an entity");
+    expect(fake.calls.some((c) => c.type === "punch_clock/blocks/update")).toBe(false);
   });
 
   it("uses the clock setting for times", async () => {

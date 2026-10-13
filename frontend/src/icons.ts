@@ -12,6 +12,7 @@ export {
   mdiDelete,
   mdiDotsVertical,
   mdiEyedropper,
+  mdiFilterOff,
   mdiFilterVariant,
   mdiFlash,
   mdiKeyboardOutline,

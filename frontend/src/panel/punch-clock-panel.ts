@@ -306,15 +306,23 @@ export class PunchClockPanel extends LitElement {
     }
   }
 
-  /** Ask before throwing away unsaved edits in the block editor. */
+  /**
+   * Before leaving a block with unsaved edits, offer to save or discard them. Returns
+   * false to stay (cancelled, or the save failed; the editor then shows why).
+   */
   private async okToLeaveEditor(): Promise<boolean> {
-    if (!this.editor?.dirty) return true;
-    return this.confirmDialog.ask({
-      heading: "Discard changes?",
-      text: "This block has unsaved changes.",
-      confirmText: "Discard",
-      destructive: true,
+    const editor = this.editor;
+    if (!editor?.dirty) return true;
+    const choice = await this.confirmDialog.choose({
+      heading: "Save changes?",
+      text: `"${blockLabel(editor._draft, this.hass.states)}" has unsaved changes.`,
+      choices: [
+        { value: "discard", label: "Discard", kind: "danger" },
+        { value: "save", label: "Save", kind: "primary" },
+      ],
     });
+    if (choice === "save") return editor.save();
+    return choice === "discard";
   }
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {

@@ -19,7 +19,7 @@ import {
 import { layoutDay, type Placed } from "../logic/layout";
 import { blockLabel, countConditions, findConflicts, type Conflict } from "../logic/model";
 import { controls } from "../styles";
-import { icon, mdiAlertOutline, mdiFilterVariant } from "../icons";
+import { icon, mdiAlertOutline, mdiFilterOff, mdiFilterVariant } from "../icons";
 
 export interface CreateBlockDetail {
   day: number;
@@ -296,6 +296,11 @@ export class PcWeekView extends LitElement {
 
   // --- Rendering -----------------------------------------------------------
 
+  private tabInactive(): boolean {
+    const tab = this.status?.tabs[this.tabId];
+    return tab !== undefined && !tab.active;
+  }
+
   private fire<T>(type: string, detail?: T): void {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
@@ -317,11 +322,13 @@ export class PcWeekView extends LitElement {
     const top = (seg.start / 60) * hour;
     const height = Math.max(((seg.end - seg.start) / 60) * hour, MIN_BLOCK_PX);
     const state = this.status?.blocks[block.id];
+    // The block's own conditions are false right now, so it wouldn't run (in or out of its window).
+    const unmet = state !== undefined && !state.conditions_met;
     const classes = [
       "block",
       block.id === this.selectedId ? "selected" : "",
       state?.active ? "active" : "",
-      state && state.in_window && !state.active ? "waiting" : "",
+      unmet ? "unmet" : "",
       height < 36 ? "compact" : "",
       seg.continuation ? "continuation" : "",
       seg.continues ? "continues" : "",
@@ -331,7 +338,8 @@ export class PcWeekView extends LitElement {
     const conditionCount = countConditions(block.conditions);
     const day = dayName(block.day, this.language, "long");
     const notes = [
-      state?.active ? "active now" : state?.in_window ? "waiting: conditions are false" : "",
+      state?.active ? "running now" : "",
+      unmet ? "conditions not met right now, so it won't run" : "",
       conflicts?.length ? "conflicts with another block" : "",
       missing ? "uses an entity that doesn't exist" : "",
     ].filter(Boolean);
@@ -347,7 +355,15 @@ export class PcWeekView extends LitElement {
       <span class="name">${label}</span>
       <span class="time">${range}</span>
       <span class="badges">
-        ${conditionCount ? html`<span title="Has conditions">${icon(mdiFilterVariant, 14)}</span>` : nothing}
+        ${
+          unmet
+            ? html`<span class="unmet-badge" title="Conditions not met right now"
+                >${icon(mdiFilterOff, 14)}</span
+              >`
+            : conditionCount
+              ? html`<span title="Has conditions">${icon(mdiFilterVariant, 14)}</span>`
+              : nothing
+        }
         ${
           conflicts?.length || missing
             ? html`<span class="warn" title=${notes.join(", ")}>${icon(mdiAlertOutline, 14)}</span>`
@@ -426,7 +442,7 @@ export class PcWeekView extends LitElement {
       }
     }
     return html`<div
-      class="scroller ${this.picking ? "picking" : ""}"
+      class="scroller ${this.picking ? "picking" : ""} ${this.tabInactive() ? "tab-off" : ""}"
       style="--hour:${this.hourHeight}px"
     >
       <div class="grid" role="grid" aria-label="Week schedule">
@@ -573,12 +589,27 @@ export class PcWeekView extends LitElement {
         background: color-mix(in srgb, var(--block-color) 42%, var(--pc-card));
         box-shadow: inset 0 0 0 1px var(--block-color);
       }
-      .block.waiting {
+      /* Conditions not met: faded and hatched, with a dashed edge, so it reads as "off". */
+      .block.unmet,
+      .block.unmet:hover {
+        background-color: color-mix(in srgb, var(--block-color) 10%, var(--pc-card));
         background-image: repeating-linear-gradient(
           135deg,
-          transparent 0 6px,
-          color-mix(in srgb, var(--pc-text) 7%, transparent) 6px 12px
+          transparent 0 5px,
+          color-mix(in srgb, var(--pc-text) 10%, transparent) 5px 10px
         );
+        border-left-style: dashed;
+        color: var(--pc-text-2);
+      }
+      .block.unmet:hover {
+        background-color: color-mix(in srgb, var(--block-color) 18%, var(--pc-card));
+      }
+      .badges .unmet-badge {
+        color: var(--pc-warning);
+      }
+      /* The whole tab isn't running (turned off, or its conditions are false). */
+      .tab-off .block:not(.selected) {
+        opacity: 0.6;
       }
       .block.selected {
         outline: 2px solid var(--block-color);

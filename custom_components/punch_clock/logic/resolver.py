@@ -108,11 +108,14 @@ def resolve(config: Config, wm: int, lookup: Lookup) -> Resolution:
     best: dict[Key, tuple[tuple[int, int, int, int], Any, Source]] = {}
     for block in config.blocks:
         tab_state = result.tabs.get(block.tab_id)
-        if tab_state is None or not in_window(wm, block):
+        if tab_state is None:
             continue
+        # Conditions are evaluated for every block, so the panel can show which blocks
+        # wouldn't run right now even outside their time window.
+        window = in_window(wm, block)
         met = evaluate(block.conditions, lookup)
-        active = met and tab_state.active
-        result.blocks[block.id] = BlockState(in_window=True, conditions_met=met, active=active)
+        active = window and met and tab_state.active
+        result.blocks[block.id] = BlockState(in_window=window, conditions_met=met, active=active)
         if not active:
             continue
         rank = (
