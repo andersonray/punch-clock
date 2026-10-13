@@ -12,6 +12,7 @@ from typing import Any
 
 from .actions import domain_of
 from .model import CELSIUS, FAHRENHEIT, Action, Block, Config, EntityAction, Tab
+from .resolver import Key
 
 TEMPERATURE_KEYS: dict[str, frozenset[str]] = {
     "climate": frozenset({"temperature", "temp_range"}),
@@ -90,3 +91,15 @@ def convert_config(config: Config, from_unit: str, to_unit: str) -> Config:
         tabs=tuple(tab(t) for t in config.tabs),
         blocks=tuple(block(b) for b in config.blocks),
     )
+
+
+def convert_desired(desired: Mapping[Key, Any], from_unit: str, to_unit: str) -> dict[Key, Any]:
+    """Convert remembered desired values exactly like ``convert_config`` converts the schedule.
+
+    Re-resolving the converted schedule then gives the same values, so a unit change
+    isn't mistaken for a transition (which would undo manual changes).
+    """
+    return {
+        key: convert_value(key[0], key[1], value, from_unit, to_unit, STORED_DIGITS)
+        for key, value in desired.items()
+    }

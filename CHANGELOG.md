@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Changing the temperature unit no longer re-sends the temperatures of running blocks, which
+  undid manual changes.
+
 ## 0.1.0 (2026-10-13)
 
 First version.
