@@ -122,7 +122,8 @@ sends `SIGNAL_STATUS_UPDATED` → subscribers get the status.
   block with one `blocks/update_many`. The eyedropper pulls the source's group in. Saving with
   another group's name and color asks to take that group's actions and conditions and join it
   (`joinMatchingGroup`). Splitting renames and recolors one block
-  (`model.splitName`, `model.splitColor`).
+  (`model.splitName`, `model.splitColor`). Times added with *Add a time* have `new_` IDs until
+  Save creates their blocks; the panel draws them in the calendar from the preview.
 - `src/logic/` mirrors parts of the backend: `capabilities.ts` ↔ `actions.DOMAIN_KEYS` (which
   settings the editor offers per domain), `time.segments` ↔ `timemath.segments`, and
   `model.findConflicts` ↔ the resolver's same-tab rules. `tests/fixtures/entities.json` is shared

@@ -881,6 +881,77 @@ describe("punch-clock-panel", () => {
     expect(whenRows(editor()!)).toHaveLength(1);
   });
 
+  it("adds a time on the next day, and creates its block when saving", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Morning");
+    const ed = editor()!;
+    for (let i = 0; i < 2; i++) {
+      buttonNamed(ed, "Add a time").click();
+      await settle(el);
+    }
+    // The last row is Friday 8:00-10:00, so Saturday, then Sunday.
+    expect(ed._whens.slice(3)).toMatchObject([
+      { day: 5, start: 480, duration: 120 },
+      { day: 6, start: 480, duration: 120 },
+    ]);
+    expect(selected()).toHaveLength(5); // shown in the calendar before saving
+    expect(fake.calls.some((c) => String(c.type).startsWith("punch_clock/blocks/"))).toBe(false);
+
+    // An unsaved time can't be selected in the calendar (Sunday is the first column).
+    selected()[0]!.click();
+    await settle(el);
+    expect(editor()!._draft.id).toBe("b_morning");
+
+    // Its row has a remove button instead of the split button.
+    const sunday = whenRows(ed)[4]!;
+    expect(sunday.querySelector('[aria-label^="Split"]')).toBeNull();
+    sunday.querySelector<HTMLButtonElement>('[aria-label^="Remove"]')!.click();
+    await settle(el);
+    expect(ed._whens).toHaveLength(4);
+
+    buttonNamed(ed, "Save").click();
+    await settle(el);
+    expect(updates()).toEqual([]);
+    expect(lastCall("blocks/create")!.blocks).toMatchObject([
+      {
+        tab_id: "t_1",
+        name: "Morning",
+        day: 5,
+        start: 480,
+        duration: 120,
+        actions: [{ entity_id: "climate.house" }],
+      },
+    ]);
+    expect(ed._whens.map((w) => w.id)).toEqual(["b_morning", "b_wed", "b_fri", "b_new0"]);
+    expect(ed.dirty).toBe(false);
+  });
+
+  it("needs a name to save a block with more than one time", async () => {
+    await mount((config) => {
+      config.blocks.find((b) => b.id === "b_target")!.name = "";
+    });
+    await clickBlock("New block");
+    const ed = editor()!;
+    buttonNamed(ed, "Add a time").click();
+    await settle(el);
+    expect(shadow(ed).querySelector(".warning-text")?.textContent).toContain(
+      "Give the block a name",
+    );
+    buttonNamed(ed, "Save").click();
+    await settle(el);
+    expect(shadow(ed).querySelector(".error-text")?.textContent).toContain("Give the block a name");
+    expect(lastCall("blocks/create")).toBeUndefined();
+
+    rename(ed, "Lunch");
+    await settle(el);
+    buttonNamed(ed, "Save").click();
+    await settle(el);
+    expect(updates()).toMatchObject([{ block_id: "b_target", changes: { name: "Lunch" } }]);
+    expect(lastCall("blocks/create")!.blocks).toMatchObject([
+      { name: "Lunch", day: 3, start: 600, duration: 60 },
+    ]);
+  });
+
   it("groups a block with the one the eyedropper copies from", async () => {
     await mount(addMorningGroup);
     await clickBlock("Target");

@@ -58,11 +58,17 @@ import "./pc-confirm-dialog";
 import "./pc-time-input";
 import type { PcConfirmDialog } from "./pc-confirm-dialog";
 
+const NAME_NEEDED =
+  "Give the block a name to save it with more than one time. Blocks are grouped by name and color.";
+
+/** Times added with "Add a time" get a temporary ID until Save creates their blocks. */
+const isNew = (id: string): boolean => id.startsWith("new_");
+
 /** The editor's unsaved name, color and times, for showing in the calendar before saving. */
 export interface BlockPreview {
   name: string;
   color: string;
-  /** Every block of the group, with its (unsaved) day and times. */
+  /** Every block of the group, with its (unsaved) day and times; new ones have `new_` IDs. */
   whens: When[];
 }
 
@@ -70,7 +76,7 @@ export interface BlockPreview {
  * Side panel (full screen when narrow) for editing a block and the rest of its group:
  * blocks in the same tab with the same name and color. They share the name, color,
  * actions and conditions, and each has its own day and times. Works on a draft; Save
- * writes every block of the group at once.
+ * writes every block of the group at once, and creates the times added with "Add a time".
  *
  * Events: `close-editor`, `delete-block` ({ blockIds }: the group), `duplicate-block`
  * ({ block }), `split-block` ({ blockId }), `start-eyedropper`, `preview-changed`
@@ -228,7 +234,8 @@ export class PcBlockEditor extends LitElement {
   private setJoined(joined: Iterable<string>): void {
     this.joinedIds = new Set(joined);
     const blocks = this.config.blocks;
-    const ids = new Set([this._draft.id, ...this.originalIds, ...this.joinedIds]);
+    const added = this._whens.filter((w) => isNew(w.id)).map((w) => w.id);
+    const ids = new Set([this._draft.id, ...this.originalIds, ...this.joinedIds, ...added]);
     if (ids.size === this._whens.length && this._whens.every((w) => ids.has(w.id))) return;
     const current = new Map(this._whens.map((w) => [w.id, w]));
     const whens: When[] = [];
@@ -269,6 +276,14 @@ export class PcBlockEditor extends LitElement {
     this._draft = { ...this._draft, ...changes };
     this._error = "";
     if ("conditions" in changes) this.scheduleEvaluate();
+  }
+
+  /** Add another time to the group: the last row's start and stop, on the next day. */
+  private addWhen(): void {
+    const last = this._whens.at(-1)!;
+    const when = { ...last, id: newId("new"), day: (last.day + 1) % 7 };
+    this._whens = [...this._whens, when];
+    this._error = "";
   }
 
   private patchWhen(blockId: string, changes: Partial<When>): void {
@@ -336,16 +351,20 @@ export class PcBlockEditor extends LitElement {
   async save(): Promise<boolean> {
     if (!(await this.joinMatchingGroup())) return false;
     const draft = this._draft;
+    const name = draft.name.trim();
     const problems = [...actionProblems(draft.actions), ...conditionProblems(draft.conditions)];
+    if (this._whens.length > 1 && !name) problems.push(NAME_NEEDED);
     if (problems.length) {
       this._error = problems.join(" ");
       return false;
     }
-    const name = draft.name.trim();
     const behavior = behaviorKey(draft);
     const whens = this._whens;
+    const { tab_id, color, actions, conditions } = draft;
+    const added = whens.filter((w) => isNew(w.id));
     const updates: BlockUpdate[] = [];
     for (const when of whens) {
+      if (isNew(when.id)) continue;
       const saved = this.config.blocks.find((b) => b.id === when.id);
       if (!saved) continue; // deleted meanwhile
       const unchanged =
@@ -357,7 +376,6 @@ export class PcBlockEditor extends LitElement {
         behaviorKey(saved) === behavior;
       if (unchanged) continue;
       const { day, start, duration } = when;
-      const { color, actions, conditions } = draft;
       updates.push({
         block_id: when.id,
         changes: { name, color, day, start, duration, actions, conditions },
@@ -365,17 +383,39 @@ export class PcBlockEditor extends LitElement {
     }
     this._saving = true;
     try {
+      // Update first: if creating then fails, saving again only creates.
       if (updates.length) await this.api.updateBlocks(updates);
+      const created = added.length
+        ? (
+            await this.api.createBlocks(
+              added.map(({ day, start, duration }) => ({
+                tab_id,
+                name,
+                color,
+                actions,
+                conditions,
+                day,
+                start,
+                duration,
+              })),
+            )
+          ).blocks
+        : [];
+      // The added times are blocks now.
+      const ids = new Map(added.map((w, i) => [w.id, created[i]!.id]));
+      const withIds = (list: When[]) => list.map((w) => ({ ...w, id: ids.get(w.id) ?? w.id }));
+      const savedWhens = withIds(whens);
+      this._whens = withIds(this._whens);
       // What was saved is the new baseline; edits made while saving stay unsaved.
       const saved = { ...draft, name };
       if (this._draft === draft) {
         this._draft = saved;
         this.previewName = name;
       }
-      this.originalIds = new Set(whens.map((w) => w.id));
+      this.originalIds = new Set(savedWhens.map((w) => w.id));
       this.joinedIds = new Set();
       this.reference = behavior;
-      this.baseline = this.snapshot(saved, whens);
+      this.baseline = this.snapshot(saved, savedWhens);
       this._error = "";
       return true;
     } catch (err) {
@@ -426,6 +466,7 @@ export class PcBlockEditor extends LitElement {
   private renderWhen(): TemplateResult {
     const whens = this._whens;
     const multiple = whens.length > 1;
+    const splittable = whens.filter((w) => !isNew(w.id)).length > 1;
     const days = displayDays(this.config.settings.week_start);
     return html`<section>
       <h3>When</h3>
@@ -445,30 +486,56 @@ export class PcBlockEditor extends LitElement {
         ${repeat(
           whens,
           (w) => w.id,
-          (w) => this.renderWhenRow(w, days, multiple),
+          (w) => this.renderWhenRow(w, days, multiple, splittable),
         )}
+      </div>
+      ${
+        multiple && !this._draft.name.trim()
+          ? html`<div class="warning-text">${NAME_NEEDED}</div>`
+          : nothing
+      }
+      <div>
+        <button class="btn text" @click=${() => this.addWhen()}>
+          ${icon(mdiPlus, 18)} Add a time
+        </button>
       </div>
     </section>`;
   }
 
-  private renderWhenRow(w: When, days: number[], multiple: boolean): TemplateResult {
+  private renderWhenRow(
+    w: When,
+    days: number[],
+    multiple: boolean,
+    splittable: boolean,
+  ): TemplateResult {
     const stop = stopMinute(w.start, w.duration);
     const nextDay = w.start + w.duration > MINUTES_PER_DAY;
     const current = multiple && w.id === this._draft.id;
     const label = `${dayName(w.day, this.language, "long")} ${formatRange(w.start, w.duration, this.use24h)}`;
+    let first: TemplateResult | typeof nothing = nothing;
+    if (isNew(w.id)) {
+      first = html`<button
+        class="icon-btn small"
+        aria-label=${`Remove ${label}`}
+        title="Remove this time"
+        @click=${() => (this._whens = this._whens.filter((x) => x.id !== w.id))}
+      >
+        ${icon(mdiClose, 18)}
+      </button>`;
+    } else if (splittable) {
+      first = html`<button
+        class="icon-btn small"
+        aria-label=${`Split ${label} into its own block`}
+        title="Split into its own block"
+        @click=${() => this.fire("split-block", { blockId: w.id })}
+      >
+        ${icon(mdiCallSplit, 18)}
+      </button>`;
+    } else if (multiple) {
+      first = html`<span></span>`;
+    }
     return html`<div class="when-row ${current ? "current" : ""}">
-      ${
-        multiple
-          ? html`<button
-              class="icon-btn small"
-              aria-label=${`Split ${label} into its own block`}
-              title="Split into its own block"
-              @click=${() => this.fire("split-block", { blockId: w.id })}
-            >
-              ${icon(mdiCallSplit, 18)}
-            </button>`
-          : nothing
-      }
+      ${first}
       <select
         aria-label="Day"
         @change=${(e: Event) =>
@@ -601,6 +668,7 @@ export class PcBlockEditor extends LitElement {
       const when = members.get(b.id);
       return when ? { ...b, ...d, ...when, seq: b.seq } : b;
     });
+    for (const when of this._whens) if (isNew(when.id)) blocks.push({ ...d, ...when });
     const byOther = new Map<string, Set<string>>();
     for (const [id, list] of findConflicts(blocks)) {
       if (!members.has(id)) continue;

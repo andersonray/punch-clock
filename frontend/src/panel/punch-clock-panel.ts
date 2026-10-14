@@ -237,13 +237,16 @@ export class PunchClockPanel extends LitElement {
     if (cache && cache.config === config && cache.preview === preview) return cache.result;
     const { name, color } = preview;
     const whens = new Map(preview.whens.map((w) => [w.id, w]));
-    const result = {
-      ...config,
-      blocks: config.blocks.map((b) => {
-        const when = whens.get(b.id);
-        return when ? { ...b, name, color, ...when } : b;
-      }),
-    };
+    const blocks = config.blocks.map((b) => {
+      const when = whens.get(b.id);
+      whens.delete(b.id);
+      return when ? { ...b, name, color, ...when } : b;
+    });
+    // Times added in the editor but not saved yet.
+    const template = config.blocks.find((b) => b.id === this._selectedId);
+    if (template)
+      for (const when of whens.values()) blocks.push({ ...template, name, color, ...when });
+    const result = { ...config, blocks };
     this.viewCache = { config, preview, result };
     return result;
   }
@@ -382,6 +385,8 @@ export class PunchClockPanel extends LitElement {
 
   private async selectBlock(blockId: string | null): Promise<void> {
     if (blockId === this._selectedId) return;
+    // A time added in the editor but not saved yet isn't a block to select.
+    if (blockId && !this._config?.blocks.some((b) => b.id === blockId)) return;
     if (blockId && this.selectedIds.includes(blockId)) {
       // Another block of the group being edited: the editor keeps any unsaved changes.
       this._selectedId = blockId;
