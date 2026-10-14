@@ -136,6 +136,83 @@ export function blockLabel(block: Block, states: Record<string, HassEntity> = {}
   return first.type === "entity" ? friendlyName(first.entity_id, states) : first.service;
 }
 
+// --- Groups ----------------------------------------------------------------
+
+/** When a block runs: the part that differs between the blocks of a group. */
+export type When = Pick<Block, "id" | "day" | "start" | "duration">;
+
+export const whenOf = ({ id, day, start, duration }: Block): When => ({ id, day, start, duration });
+
+/**
+ * The blocks of a tab that have this name and color. Blocks with the same name and color
+ * form a group that shares its actions and conditions; unnamed blocks never group.
+ */
+export function groupMembers(blocks: Block[], tabId: string, name: string, color: string): Block[] {
+  const trimmed = name.trim();
+  if (!trimmed) return [];
+  const lower = color.toLowerCase();
+  return blocks.filter(
+    (b) => b.tab_id === tabId && b.name.trim() === trimmed && b.color.toLowerCase() === lower,
+  );
+}
+
+/** The block's group, including the block itself. */
+export function blockGroup(blocks: Block[], block: Block): Block[] {
+  const members = groupMembers(blocks, block.tab_id, block.name, block.color);
+  return members.some((b) => b.id === block.id) ? members : [block];
+}
+
+/** Where a time falls in a week that starts on `weekStart`, in minutes from its start. */
+export const weekMinute = (w: When, weekStart: number): number =>
+  ((w.day - weekStart + 7) % 7) * MINUTES_PER_DAY + w.start;
+
+/** Calendar order for a week that starts on `weekStart`. */
+export function sortWhens(whens: When[], weekStart: number): When[] {
+  const key = (w: When) => weekMinute(w, weekStart);
+  return [...whens].sort((a, b) => key(a) - key(b) || a.id.localeCompare(b.id));
+}
+
+/** A name for a block split off from its group: the name plus the lowest unused number. */
+export function splitName(blocks: Block[], tabId: string, name: string): string {
+  const taken = new Set(blocks.filter((b) => b.tab_id === tabId).map((b) => b.name.trim()));
+  for (let n = 1; ; n++) {
+    const candidate = `${name.trim()} ${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+/**
+ * A color for a block split off from its group: a random palette color that no block in
+ * the tab uses, or else any palette color other than the group's.
+ */
+export function splitColor(
+  blocks: Block[],
+  tabId: string,
+  color: string,
+  random: () => number = Math.random,
+): string {
+  const used = new Set(blocks.filter((b) => b.tab_id === tabId).map((b) => b.color.toLowerCase()));
+  const unused = PALETTE.filter((c) => !used.has(c));
+  const choices = unused.length ? unused : PALETTE.filter((c) => c !== color.toLowerCase());
+  return choices[Math.floor(random() * choices.length)]!;
+}
+
+const withoutIds = (group: Group): unknown => ({
+  ...group,
+  id: undefined,
+  items: group.items.map((item) =>
+    item.type === "group" ? withoutIds(item) : { ...item, id: undefined },
+  ),
+});
+
+/** What a block does, ignoring IDs: equal for blocks with the same actions and conditions. */
+export function behaviorKey(block: Pick<Block, "actions" | "conditions">): string {
+  return JSON.stringify([
+    block.actions.map((a) => ({ ...a, id: undefined })),
+    withoutIds(block.conditions),
+  ]);
+}
+
 // --- Conflicts and feedback ------------------------------------------------
 
 /** Setting keys a block writes: "entity_id|key" or "service:<service>". */

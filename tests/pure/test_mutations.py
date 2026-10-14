@@ -8,9 +8,11 @@ from logic.mutations import (
     create_blocks,
     create_tab,
     delete_block,
+    delete_blocks,
     delete_tab,
     reorder_tabs,
     update_block,
+    update_blocks,
     update_settings,
     update_tab,
 )
@@ -119,6 +121,43 @@ def test_block_update_and_delete() -> None:
     assert config.blocks == ()
     with pytest.raises(NotFoundError):
         delete_block(config, block.id)
+
+
+def test_update_blocks_is_one_atomic_revision() -> None:
+    config = default_config()
+    item = {"tab_id": config.tabs[0].id, "day": 1, "start": 60, "duration": 30}
+    config, (a, b, c) = create_blocks(config, [item, {**item, "day": 2}, {**item, "day": 3}])
+    revision = config.revision
+    config, updated = update_blocks(
+        config, [(a.id, {"name": " Wake ", "start": 90}), (b.id, {"name": "Wake"})]
+    )
+    assert [u.id for u in updated] == [a.id, b.id]
+    assert config.revision == revision + 1
+    assert [(x.name, x.start) for x in config.blocks] == [("Wake", 90), ("Wake", 60), ("", 60)]
+    assert config.blocks[2] == c
+
+    # Nothing changes if any update is invalid.
+    for bad in (
+        [(a.id, {"name": "x"}), (b.id, {"day": 9})],
+        [(a.id, {"name": "x"}), ("b_nope", {})],
+        [(a.id, {"name": "x"}), (a.id, {"name": "y"})],
+        [(a.id, {"seq": 1})],
+        [],
+    ):
+        with pytest.raises(ConfigError):
+            update_blocks(config, bad)
+
+
+def test_delete_blocks() -> None:
+    config = default_config()
+    item = {"tab_id": config.tabs[0].id, "day": 1, "start": 60, "duration": 30}
+    config, (a, b, c) = create_blocks(config, [item, item, item])
+    with pytest.raises(NotFoundError):
+        delete_blocks(config, [a.id, "b_nope"])
+    with pytest.raises(ConfigError, match="empty"):
+        delete_blocks(config, [])
+    config = delete_blocks(config, [a.id, c.id])
+    assert config.blocks == (b,)
 
 
 def test_block_limit(monkeypatch: pytest.MonkeyPatch) -> None:

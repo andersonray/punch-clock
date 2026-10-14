@@ -4,6 +4,7 @@ export {
   mdiAlertCircleOutline,
   mdiAlertOutline,
   mdiCalendarClock,
+  mdiCallSplit,
   mdiCheck,
   mdiClockOutline,
   mdiClose,

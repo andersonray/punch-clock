@@ -20,8 +20,10 @@ a calendar.
   "Workweek", "Vacation" or "Guests". Every tab whose conditions are true runs at the same time,
   and the leftmost tab wins when two tabs conflict.
 - **Default values.** Each tab can have per-entity values to fall back to when no block is active.
+- **Block groups.** Blocks in a tab with the same name and color are a group: they share their
+  actions and conditions, and each has its own day and times. Edit any of them to change them all.
 - **Copying blocks.** *Duplicate* copies a block to other days or tabs. The *eyedropper* applies
-  another block's actions and conditions to the selected one.
+  another block's actions and conditions to the selected one and groups the two.
 - **Exposed entities.** A master switch, a switch per tab, and a binary sensor per tab, for use in
   automations and dashboards.
 
@@ -72,10 +74,27 @@ Open **Punch Clock** in the sidebar.
   match. Each condition shows whether it's true right now. The value box suggests the entity's
   possible values; its dropdown always lists all of them, with the ones matching what you've
   typed at the top.
-- **Duplicate** (copy icon) copies a block to any days you pick, optionally into another tab.
+- **Groups.** Blocks in the same tab with the same name and color are a group, for doing the
+  same thing at different times on different days. Clicking one highlights the whole group, and
+  the editor lists the day, start and stop of each block. **Add a time** adds another block to
+  the group, with the selected row's start and stop on the next day (or the next one without a
+  time starting then); it's created when you save.
+  Changes to the name, color, actions and conditions apply to every block of the group when you
+  save. To take a block out of its
+  group, click the split icon at the start of its row: it gets the name with a number added
+  ("Morning 1") and a new color, and opens on its own. If you save a block with the name and color of another
+  group, it asks whether to replace the block's actions and conditions with the group's and join
+  it; cancel to pick another name or color instead. Deleting a block of a group asks whether to
+  delete just that one or all of them. To delete one particular block of the group, click the
+  trash icon under its row's split icon; after you confirm, the rest of the group stays open
+  with any unsaved changes.
+- **Duplicate** (copy icon) copies a block to any days you pick, optionally into another tab. The
+  copies have the same name and color, so in the same tab they join the block's group.
 - **Eyedropper** (pipette icon): click it, then click another block to copy that block's
-  name, color, actions and conditions into the one you're editing. If that would replace a name,
-  actions or conditions, it asks you first. Press Esc to cancel.
+  name, color, actions and conditions into the one you're editing (and the rest of its group).
+  In the same tab, the two then form one group, all highlighted, with every block's times in
+  the editor. If that would replace a name, actions or conditions, it asks you first. Press Esc
+  to cancel.
 - **Tabs.** Use **+** to add a tab. The **⋮** menu edits the tab's name, conditions and default
   values, turns it on or off, reorders it, or deletes it. You can also drag tabs to reorder
   them. The dot on each tab is green while the tab is active.
