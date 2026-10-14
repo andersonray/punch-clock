@@ -3,7 +3,7 @@ import type { Status, Tab } from "../types";
 import { controls } from "../styles";
 import { icon, mdiDotsVertical, mdiPlus } from "../icons";
 
-export type TabMenuAction = "edit" | "toggle" | "left" | "right" | "delete";
+export type TabMenuAction = "edit" | "duplicate" | "toggle" | "left" | "right" | "delete";
 
 /**
  * Tabs across the top. Events: `select-tab` ({ tabId }), `add-tab`,
@@ -104,6 +104,13 @@ export class PcTabBar extends LitElement {
     return html`<div class="menu" role="menu" style="left:${this._menuX}px">
       <button role="menuitem" @click=${() => this.action(tab.id, "edit")}>
         Name, conditions and defaults…
+      </button>
+      <button
+        role="menuitem"
+        title="Copy this tab and its blocks into a new tab, which starts out disabled"
+        @click=${() => this.action(tab.id, "duplicate")}
+      >
+        Duplicate tab
       </button>
       <button role="menuitem" @click=${() => this.action(tab.id, "toggle")}>
         ${tab.enabled ? "Disable tab" : "Enable tab"}

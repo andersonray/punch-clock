@@ -15,6 +15,9 @@
   asking.
 - `punch_clock/blocks/update_many` and `punch_clock/blocks/delete_many` WebSocket commands, which
   change several blocks in one revision.
+- **Duplicate tab** in a tab's ⋮ menu copies the tab and all its blocks into a new tab right
+  after it. The copy starts turned off, so it changes nothing until you turn it on.
+- `punch_clock/tabs/duplicate` WebSocket command, which does that in one revision.
 - Drag a block's top or bottom edge in the calendar to change its start or stop time.
 - While drawing out a new block or dragging a block's edge, move into the next or previous day's
   column to make the block run past midnight.

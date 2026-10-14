@@ -19,6 +19,7 @@ part is invalid.
 | `punch_clock/tabs/create` | `tab`: `{name, enabled?, conditions?, defaults?}` | `{tab}` (added as the last tab) |
 | `punch_clock/tabs/update` | `tab_id`, `changes` | `{tab}` |
 | `punch_clock/tabs/delete` | `tab_id` | `{}`, and the tab's blocks are deleted too |
+| `punch_clock/tabs/duplicate` | `tab_id` | `{tab, blocks}`: a copy of the tab and its blocks, turned off, named `<name> copy` (or `copy 2` and so on if taken), right after it, with new IDs throughout |
 | `punch_clock/tabs/reorder` | `order`: every tab ID | `{}` |
 | `punch_clock/blocks/create` | `blocks`: list of blocks without `id`/`seq` | `{blocks}` (all or nothing) |
 | `punch_clock/blocks/update` | `block_id`, `changes` | `{block}` |

@@ -157,6 +157,23 @@ function fakeHass(initial: Config, status: Status = makeStatus()): Fake {
         case "punch_clock/blocks/delete_many":
           remove(msg.block_ids as string[]);
           return {} as T;
+        case "punch_clock/tabs/duplicate": {
+          // Like the server: a copy, turned off, right after the original, then a config push.
+          const source = config.tabs.find((t) => t.id === msg.tab_id)!;
+          const tab = { ...source, id: "t_copy", name: `${source.name} copy`, enabled: false };
+          const blocks = config.blocks
+            .filter((b) => b.tab_id === source.id)
+            .map((b, i) => ({ ...b, id: `b_copy${i}`, tab_id: tab.id }));
+          const at = config.tabs.indexOf(source) + 1;
+          config = {
+            ...config,
+            revision: config.revision + 1,
+            tabs: [...config.tabs.slice(0, at), tab, ...config.tabs.slice(at)],
+            blocks: [...config.blocks, ...blocks],
+          };
+          push?.({ kind: "config", config: structuredClone(config) });
+          return { tab, blocks } as T;
+        }
         default:
           return {} as T;
       }
@@ -982,6 +999,33 @@ describe("punch-clock-panel", () => {
     expect(
       [...shadow(second).querySelectorAll("li")].map((li) => li.textContent!.trim()),
     ).not.toContain("Set by this tab's blocks");
+  });
+
+  it("duplicates a tab from its menu, turned off, and shows the copy", async () => {
+    await mount();
+    const bar = () => shadow(shadow(el).querySelector("pc-tab-bar"));
+    bar().querySelector<HTMLButtonElement>('[aria-label="Options for Week"]')!.click();
+    await settle(el);
+    [...bar().querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((b) => b.textContent?.trim() === "Duplicate tab")!
+      .click();
+    await settle(el);
+    expect(fake.calls.filter((c) => c.type === "punch_clock/tabs/duplicate")).toEqual([
+      expect.objectContaining({ tab_id: "t_1" }),
+    ]);
+    expect([...bar().querySelectorAll(".tab-button")].map((t) => t.textContent?.trim())).toEqual([
+      "Week",
+      "Week copy",
+      "Vacation",
+    ]);
+    expect(weekView().tabId).toBe("t_copy");
+    expect(blocks()).toHaveLength(4); // copies of Morning, Target and Night (two segments)
+    expect(shadow(el).querySelector(".banner")!.textContent).toContain(
+      'The "Week copy" tab is turned off',
+    );
+    expect(shadow(el).querySelector(".toast")!.textContent).toContain(
+      'Created "Week copy" with 3 blocks.',
+    );
   });
 
   it("duplicates a block to several days", async () => {

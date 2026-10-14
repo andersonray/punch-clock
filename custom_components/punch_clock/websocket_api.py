@@ -49,6 +49,7 @@ def async_register(hass: HomeAssistant) -> None:
         ws_tabs_create,
         ws_tabs_update,
         ws_tabs_delete,
+        ws_tabs_duplicate,
         ws_tabs_reorder,
         ws_blocks_create,
         ws_blocks_update,
@@ -225,6 +226,23 @@ def ws_tabs_delete(
 ) -> None:
     data.store.async_mutate(lambda c: (mutations.delete_tab(c, msg["tab_id"]), None))
     connection.send_result(msg["id"], {})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/tabs/duplicate", vol.Required("tab_id"): str}
+)
+@_handler
+def ws_tabs_duplicate(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    data: PunchClockData,
+) -> None:
+    """Copy a tab and its blocks into a new tab, turned off, right after it."""
+    tab, blocks = data.store.async_mutate(lambda c: mutations.duplicate_tab(c, msg["tab_id"]))
+    connection.send_result(
+        msg["id"], {"tab": dump_tab(tab), "blocks": [dump_block(b) for b in blocks]}
+    )
 
 
 @websocket_api.websocket_command(

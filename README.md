@@ -106,9 +106,12 @@ Open **Punch Clock** in the sidebar.
   the editor. If that would replace a name, actions or conditions, it asks you first. Press Esc
   to cancel.
 - **Tabs.** Use **+** to add a tab. The **⋮** menu edits the tab's name, conditions and default
-  values, turns it on or off, reorders it, or deletes it. You can also drag tabs to reorder
-  them. The dot on each tab is green while the tab is active. When you add a default value, the
-  entities that the tab's blocks set are listed first.
+  values, duplicates it, turns it on or off, reorders it, or deletes it. You can also drag tabs
+  to reorder them. The dot on each tab is green while the tab is active. When you add a default
+  value, the entities that the tab's blocks set are listed first.
+- **Duplicate tab** copies the tab, with its conditions, default values and all its blocks, into
+  a new tab right after it. The copy starts turned off, so it doesn't change anything until
+  you've made your changes and turned it on.
 - **Settings** (gear icon): first day of the week; units (Celsius or Fahrenheit for scheduled
   temperatures, and a 12- or 24-hour clock); hour height; and a list of recent problems.
   Scheduled temperatures are stored in the unit you choose and converted to Home Assistant's unit

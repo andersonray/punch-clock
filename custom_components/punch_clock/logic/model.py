@@ -424,17 +424,19 @@ def _parse_actions(
 # ---------------------------------------------------------------------------
 
 
-def parse_tab(data: Any, path: str = "tab", *, tab_id: str | None = None) -> Tab:
+def parse_tab(
+    data: Any, path: str = "tab", *, tab_id: str | None = None, fresh_ids: bool = False
+) -> Tab:
     m = _mapping(data, path)
     return Tab(
         id=tab_id or _str(m, "id", path, pattern=_ID_RE),
         name=_str(m, "name", path).strip(),
         enabled=_bool(m, "enabled", path, default=True),
-        conditions=parse_group(m.get("conditions"), f"{path}.conditions"),
+        conditions=parse_group(m.get("conditions"), f"{path}.conditions", fresh_ids=fresh_ids),
         defaults=cast(
             tuple[EntityAction, ...],
             _parse_actions(
-                m.get("defaults"), f"{path}.defaults", fresh_ids=False, entity_only=True
+                m.get("defaults"), f"{path}.defaults", fresh_ids=fresh_ids, entity_only=True
             ),
         ),
     )

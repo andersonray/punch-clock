@@ -608,6 +608,17 @@ export class PunchClockPanel extends LitElement {
       case "edit":
         this._tabDialog = { tab };
         break;
+      case "duplicate": {
+        const result = await this.run(() => this.api.duplicateTab(tabId));
+        if (!result) return;
+        const count = result.blocks.length;
+        this.toast(
+          `Created "${result.tab.name}" with ${count} block${count === 1 ? "" : "s"}. ` +
+            "It's turned off until you turn it on.",
+        );
+        await this.selectTab(result.tab.id);
+        break;
+      }
       case "toggle":
         await this.run(() => this.api.updateTab(tabId, { enabled: !tab.enabled }));
         break;

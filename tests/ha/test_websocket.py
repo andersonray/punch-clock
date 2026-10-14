@@ -68,6 +68,33 @@ async def test_tab_crud(client: Client, hass: HomeAssistant) -> None:
     assert hass.states.get("binary_sensor.punch_clock_vacation_active") is None
 
 
+async def test_tab_duplicate(client: Client, hass: HomeAssistant) -> None:
+    first = (await client.call("config/get"))["tabs"][0]
+    source = {"tab_id": first["id"], "day": 1, "start": 390, "duration": 120, "name": "Morning"}
+    originals = (await client.call("blocks/create", blocks=[source, {**source, "day": 3}]))[
+        "blocks"
+    ]
+
+    result = await client.call("tabs/duplicate", tab_id=first["id"])
+    tab = result["tab"]
+    assert (tab["name"], tab["enabled"]) == (f"{first['name']} copy", False)
+    assert [(b["tab_id"], b["day"], b["name"]) for b in result["blocks"]] == [
+        (tab["id"], 1, "Morning"),
+        (tab["id"], 3, "Morning"),
+    ]
+    config = await client.call("config/get")
+    assert [t["id"] for t in config["tabs"]] == [first["id"], tab["id"]]
+    assert len(config["blocks"]) == 4
+    assert {b["id"] for b in originals} < {b["id"] for b in config["blocks"]}
+    await hass.async_block_till_done()
+    # The copy's switch exists and is off, so the copy doesn't set anything yet.
+    assert hass.states.get("switch.punch_clock_schedule_copy_enabled").state == "off"
+
+    with pytest.raises(CommandError) as err:
+        await client.call("tabs/duplicate", tab_id="t_nope")
+    assert err.value.code == "not_found"
+
+
 async def test_block_crud(client: Client) -> None:
     tab_id = (await client.call("config/get"))["tabs"][0]["id"]
     source = {
