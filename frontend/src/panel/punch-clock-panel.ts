@@ -26,11 +26,16 @@ import { icon, mdiAlertCircleOutline, mdiCog, mdiMenu, mdiPlus } from "../icons"
 import type { TemperatureUnits } from "../logic/capabilities";
 import type { PcBlockEditor, BlockPreview } from "../components/pc-block-editor";
 import type { PcConfirmDialog } from "../components/pc-confirm-dialog";
-import type { CreateBlockDetail } from "../components/pc-week-view";
+import type { CreateBlockDetail, ResizeBlockDetail } from "../components/pc-week-view";
 import type { TabMenuAction } from "../components/pc-tab-bar";
 import { HOUR_HEIGHTS, type LocalPrefs } from "../components/pc-settings-dialog";
 
 declare const __PC_VERSION__: string;
+
+type BlockTimes = Pick<Block, "day" | "start" | "duration">;
+
+const sameTimes = (a: BlockTimes, b: BlockTimes): boolean =>
+  a.day === b.day && a.start === b.start && a.duration === b.duration;
 
 const PREFS_KEY = "punch-clock:prefs";
 const DEFAULT_PREFS: LocalPrefs = { hourHeight: 48, initialHour: -1, editorWidth: 460 };
@@ -80,6 +85,7 @@ export class PunchClockPanel extends LitElement {
     _loadError: { state: true },
     _prefs: { state: true },
     _preview: { state: true },
+    _savingTimes: { state: true },
     _resizing: { state: true },
   };
 
@@ -101,13 +107,20 @@ export class PunchClockPanel extends LitElement {
   declare _prefs: LocalPrefs;
   /** Unsaved name, color and times of the group being edited, shown in the calendar right away. */
   declare _preview: BlockPreview | null;
+  /** New times of blocks dragged in the calendar, shown until the saved config has them. */
+  declare _savingTimes: Record<string, BlockTimes>;
   declare _resizing: boolean;
 
   private readonly api = new PunchClockApi(() => this.hass);
   private unsubscribe: (() => Promise<void>) | null = null;
   private connecting = false;
   private toastTimer = 0;
-  private viewCache: { config: Config; preview: BlockPreview; result: Config } | null = null;
+  private viewCache: {
+    config: Config;
+    preview: BlockPreview | null;
+    savingTimes: Record<string, BlockTimes>;
+    result: Config;
+  } | null = null;
   private selectionCache: string[] = [];
   private unitsCache: TemperatureUnits = { schedule: "°C", ha: "°C" };
 
@@ -127,6 +140,7 @@ export class PunchClockPanel extends LitElement {
     this._loadError = "";
     this._prefs = loadPrefs();
     this._preview = null;
+    this._savingTimes = {};
     this._resizing = false;
   }
 
@@ -175,6 +189,15 @@ export class PunchClockPanel extends LitElement {
     }
     const config = event.config;
     this._config = config;
+    const saved = Object.entries(this._savingTimes).filter(([id, times]) => {
+      const block = config.blocks.find((b) => b.id === id);
+      return !block || sameTimes(block, times);
+    });
+    if (saved.length) {
+      const rest = { ...this._savingTimes };
+      for (const [id] of saved) delete rest[id];
+      this._savingTimes = rest;
+    }
     if (!config.tabs.some((t) => t.id === this._activeTabId)) {
       this._activeTabId = config.tabs[0]?.id ?? "";
     }
@@ -229,25 +252,39 @@ export class PunchClockPanel extends LitElement {
     return preview?.whens.some((w) => w.id === this._selectedId) ? preview : null;
   }
 
-  /** The config shown in the calendar: saved data plus the editor's unsaved changes. */
+  /**
+   * The config shown in the calendar: saved data plus the editor's unsaved changes and the
+   * times of blocks dragged in the calendar that are still being saved.
+   */
   private viewConfig(config: Config): Config {
     const preview = this.preview;
-    if (!preview) return config;
+    const savingTimes = this._savingTimes;
+    if (!preview && !Object.keys(savingTimes).length) return config;
     const cache = this.viewCache;
-    if (cache && cache.config === config && cache.preview === preview) return cache.result;
-    const { name, color } = preview;
-    const whens = new Map(preview.whens.map((w) => [w.id, w]));
+    if (
+      cache &&
+      cache.config === config &&
+      cache.preview === preview &&
+      cache.savingTimes === savingTimes
+    ) {
+      return cache.result;
+    }
+    const whens = new Map(preview?.whens.map((w) => [w.id, w]));
     const blocks = config.blocks.map((b) => {
       const when = whens.get(b.id);
       whens.delete(b.id);
-      return when ? { ...b, name, color, ...when } : b;
+      const view = when ? { ...b, name: preview!.name, color: preview!.color, ...when } : b;
+      // Times dragged in the calendar are newer than the editor's copy of them.
+      return savingTimes[b.id] ? { ...view, ...savingTimes[b.id] } : view;
     });
     // Times added in the editor but not saved yet.
     const template = config.blocks.find((b) => b.id === this._selectedId);
-    if (template)
+    if (preview && template) {
+      const { name, color } = preview;
       for (const when of whens.values()) blocks.push({ ...template, name, color, ...when });
+    }
     const result = { ...config, blocks };
-    this.viewCache = { config, preview, result };
+    this.viewCache = { config, preview, savingTimes, result };
     return result;
   }
 
@@ -375,6 +412,23 @@ export class PunchClockPanel extends LitElement {
     };
     const result = await this.run(() => this.api.createBlocks([input]));
     if (result?.blocks[0]) this._selectedId = result.blocks[0].id;
+  }
+
+  /**
+   * A block's edge was dragged in the calendar. Save the new times right away, unless the
+   * block's group is open in the editor with unsaved changes: then they join those changes.
+   * (A time added in the editor but not saved yet is always an unsaved change.)
+   */
+  private async resizeBlock(detail: ResizeBlockDetail): Promise<void> {
+    const { blockId, ...times } = detail;
+    const editor = this.editor;
+    if (editor?.dirty && editor.setTimes(blockId, times)) return;
+    this._savingTimes = { ...this._savingTimes, [blockId]: times };
+    const saved = await this.run(() => this.api.updateBlock(blockId, times));
+    if (!saved && this._savingTimes[blockId] === times) {
+      const { [blockId]: _failed, ...rest } = this._savingTimes;
+      this._savingTimes = rest;
+    }
   }
 
   private async addBlockNow(): Promise<void> {
@@ -719,6 +773,7 @@ export class PunchClockPanel extends LitElement {
           .hourHeight=${this._prefs.hourHeight}
           .initialHour=${this._prefs.initialHour}
           @create-block=${(e: CustomEvent<CreateBlockDetail>) => void this.createBlock(e.detail)}
+          @resize-block=${(e: CustomEvent<ResizeBlockDetail>) => void this.resizeBlock(e.detail)}
           @select-block=${(e: CustomEvent<{ blockId: string }>) => void this.selectBlock(e.detail.blockId)}
           @pick-block=${(e: CustomEvent<{ blockId: string }>) => void this.pickBlock(e.detail.blockId)}
           @background-click=${() => {

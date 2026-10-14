@@ -180,6 +180,16 @@ export class PcBlockEditor extends LitElement {
     this.scheduleEvaluate();
   }
 
+  /**
+   * Set one block's day and times, e.g. from dragging its edge in the calendar. Returns
+   * false if that block isn't one of the group being edited.
+   */
+  setTimes(blockId: string, times: Pick<Block, "day" | "start" | "duration">): boolean {
+    if (!this._whens.some((w) => w.id === blockId)) return false;
+    this.patchWhen(blockId, times);
+    return true;
+  }
+
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     window.clearTimeout(this.evaluateTimer);

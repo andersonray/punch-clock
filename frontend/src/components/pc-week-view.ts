@@ -7,12 +7,12 @@ import {
   dayName,
   displayDays,
   formatHour,
-  formatMinute,
   formatRange,
   nowIn,
   segments,
   snapCeil,
   snapFloor,
+  snapRound,
   type Segment,
   type WallClock,
 } from "../logic/time";
@@ -21,23 +21,35 @@ import { blockLabel, countConditions, findConflicts, type Conflict } from "../lo
 import { controls } from "../styles";
 import { icon, mdiAlertOutline, mdiFilterOff, mdiFilterVariant } from "../icons";
 
+/** A block's day and times. The start is a minute of the day; it may run past midnight. */
 export interface CreateBlockDetail {
   day: number;
   start: number;
   duration: number;
 }
 
-interface Ghost {
-  day: number;
-  start: number;
-  end: number;
+/** New times for a block whose top or bottom edge was dragged. */
+export interface ResizeBlockDetail extends CreateBlockDetail {
+  blockId: string;
 }
 
 interface Drag {
+  /** Drawing out a new block, or moving an existing block's start or end. */
+  kind: "create" | "start" | "end";
+  /** The block whose start or end is moving. */
+  block: Block | null;
+  /**
+   * Positions are minutes from midnight at the start of this day. Over the next day's column
+   * they're past 1440, and over the previous day's they're negative.
+   */
   day: number;
-  col: HTMLElement;
+  /** Where a new block was started, or the end of the block that stays put. */
   anchor: number;
+  /** The column the drag started in. */
+  col: HTMLElement;
+  startX: number;
   startY: number;
+  lastX: number;
   lastY: number;
   moved: boolean;
   touch: boolean;
@@ -53,6 +65,8 @@ interface Press {
 
 const LONG_PRESS_MS = 450;
 const MOVE_TOLERANCE_PX = 8;
+/** Pressing on a block's edge is meant to move it, so a smaller movement counts. */
+const RESIZE_TOLERANCE_PX = 3;
 const EDGE_SCROLL_PX = 48;
 const MIN_BLOCK_PX = 18;
 /** Space left below every block, so back-to-back blocks don't run together. */
@@ -61,10 +75,12 @@ const BLOCK_GAP_PX = 2;
 /**
  * The week calendar for one tab. Days are columns, time runs down. Blocks that
  * overlap in time share the column width; a strip on the right of every column
- * stays free so new blocks can always be dragged out.
+ * stays free so new blocks can always be dragged out. Dragging a block's top or
+ * bottom edge changes its start or end. While drawing out a block or dragging an
+ * edge, the pointer can move into the next or previous day's column to cross midnight.
  *
- * Events: `create-block` (CreateBlockDetail), `select-block` / `pick-block`
- * ({ blockId }), `background-click`.
+ * Events: `create-block` (CreateBlockDetail), `resize-block` (ResizeBlockDetail),
+ * `select-block` / `pick-block` ({ blockId }), `background-click`.
  */
 export class PcWeekView extends LitElement {
   static override properties = {
@@ -79,7 +95,7 @@ export class PcWeekView extends LitElement {
     timeZone: {},
     hourHeight: { type: Number },
     initialHour: { type: Number },
-    _ghost: { state: true },
+    _span: { state: true },
     _now: { state: true },
   };
 
@@ -97,7 +113,8 @@ export class PcWeekView extends LitElement {
   declare hourHeight: number;
   /** Hour to scroll to initially; negative means "an hour before now". */
   declare initialHour: number;
-  declare _ghost: Ghost | null;
+  /** The times being dragged out: the new block's, or those of the block being resized. */
+  declare _span: CreateBlockDetail | null;
   declare _now: WallClock;
 
   private drag: Drag | null = null;
@@ -117,7 +134,7 @@ export class PcWeekView extends LitElement {
     this.timeZone = "UTC";
     this.hourHeight = 48;
     this.initialHour = -1;
-    this._ghost = null;
+    this._span = null;
     this._now = { day: -1, minute: 0 };
   }
 
@@ -156,79 +173,177 @@ export class PcWeekView extends LitElement {
     return this.renderRoot.querySelector(".scroller") as HTMLElement;
   }
 
-  // --- Drag to create ------------------------------------------------------
+  // --- Dragging: new blocks and block edges -----------------------------------
 
   private minuteAt(col: HTMLElement, clientY: number): number {
     const rect = col.getBoundingClientRect();
     return clamp(((clientY - rect.top) / this.hourHeight) * 60, 0, MINUTES_PER_DAY);
   }
 
-  private beginDrag(day: number, col: HTMLElement, clientY: number, touch: boolean): void {
-    const anchor = Math.min(snapFloor(this.minuteAt(col, clientY)), MINUTES_PER_DAY - SNAP_MINUTES);
-    this.drag = { day, col, anchor, startY: clientY, lastY: clientY, moved: touch, touch };
-    this._ghost = { day, start: anchor, end: anchor + SNAP_MINUTES };
+  /** The day column under the pointer, or null if the columns aren't laid out. */
+  private columnAt(clientX: number): HTMLElement | null {
+    const cols = [...this.renderRoot.querySelectorAll<HTMLElement>(".col")];
+    for (const [i, col] of cols.entries()) {
+      const rect = col.getBoundingClientRect();
+      if (!rect.width) return null;
+      if (clientX < rect.right || i === cols.length - 1) return col;
+    }
+    return null;
+  }
+
+  /**
+   * The pointer's position in minutes from midnight at the start of `drag.day`. Columns
+   * further away than the next or previous day count as two days off, which the drag's
+   * 24-hour limit then clamps.
+   */
+  private positionAt(drag: Drag, clientX: number, clientY: number): number {
+    const col = this.columnAt(clientX) ?? drag.col;
+    const ahead = (Number(col.dataset.day) - drag.day + 7) % 7;
+    let offset = ahead === 0 ? 0 : ahead === 1 ? 1 : ahead === 6 ? -1 : 0;
+    if (ahead > 1 && ahead < 6) {
+      offset = Number(col.dataset.index) > Number(drag.col.dataset.index) ? 2 : -2;
+    }
+    return offset * MINUTES_PER_DAY + this.minuteAt(col, clientY);
+  }
+
+  /** The block times a drag to `position` gives: at least 15 minutes, at most 24 hours. */
+  private spanAt(drag: Drag, position: number): CreateBlockDetail {
+    const anchor = drag.anchor;
+    let start: number;
+    let end: number;
+    if (drag.kind === "start") {
+      end = anchor;
+      start = clamp(snapRound(position), end - MINUTES_PER_DAY, end - SNAP_MINUTES);
+    } else if (drag.kind === "end") {
+      start = anchor;
+      end = clamp(snapRound(position), start + SNAP_MINUTES, start + MINUTES_PER_DAY);
+    } else if (position >= anchor) {
+      start = anchor;
+      end = Math.min(Math.max(anchor + SNAP_MINUTES, snapCeil(position)), start + MINUTES_PER_DAY);
+    } else {
+      end = anchor + SNAP_MINUTES;
+      start = Math.max(snapFloor(position), end - MINUTES_PER_DAY);
+    }
+    const days = Math.floor(start / MINUTES_PER_DAY);
+    return {
+      day: (((drag.day + days) % 7) + 7) % 7,
+      start: start - days * MINUTES_PER_DAY,
+      duration: end - start,
+    };
+  }
+
+  private beginDrag(drag: Drag, pointerId: number | null): void {
+    this.drag = drag;
+    // Capture on the scroller, which outlives the block and column elements a drag redraws.
+    if (pointerId !== null) this.scroller.setPointerCapture?.(pointerId);
+    this._span = drag.block
+      ? { day: drag.block.day, start: drag.block.start, duration: drag.block.duration }
+      : this.spanAt(drag, drag.anchor);
+    window.addEventListener("keydown", this.onDragKey);
     this.scrollFrame = requestAnimationFrame(this.autoScroll);
   }
 
-  private updateDrag(clientY: number): void {
+  private beginCreate(
+    day: number,
+    col: HTMLElement,
+    clientX: number,
+    clientY: number,
+    pointerId: number | null,
+  ): void {
+    const touch = pointerId === null;
+    const anchor = Math.min(snapFloor(this.minuteAt(col, clientY)), MINUTES_PER_DAY - SNAP_MINUTES);
+    this.beginDrag(
+      {
+        kind: "create",
+        block: null,
+        day,
+        anchor,
+        col,
+        startX: clientX,
+        startY: clientY,
+        lastX: clientX,
+        lastY: clientY,
+        moved: touch,
+        touch,
+      },
+      pointerId,
+    );
+  }
+
+  private updateDrag(clientX: number, clientY: number): void {
     const drag = this.drag;
     if (!drag) return;
+    drag.lastX = clientX;
     drag.lastY = clientY;
-    if (Math.abs(clientY - drag.startY) > MOVE_TOLERANCE_PX) drag.moved = true;
-    const minute = this.minuteAt(drag.col, clientY);
-    let start: number;
-    let end: number;
-    if (minute >= drag.anchor) {
-      start = drag.anchor;
-      end = Math.max(drag.anchor + SNAP_MINUTES, snapCeil(minute));
-    } else {
-      start = snapFloor(minute);
-      end = drag.anchor + SNAP_MINUTES;
-    }
-    this._ghost = {
-      day: drag.day,
-      start: clamp(start, 0, MINUTES_PER_DAY - SNAP_MINUTES),
-      end: clamp(end, SNAP_MINUTES, MINUTES_PER_DAY),
-    };
+    const tolerance = drag.block ? RESIZE_TOLERANCE_PX : MOVE_TOLERANCE_PX;
+    if (Math.hypot(clientX - drag.startX, clientY - drag.startY) > tolerance) drag.moved = true;
+    // Until an edge really moves, leave the block alone (its times may be off the 15-minute grid).
+    if (drag.block && !drag.moved) return;
+    this._span = this.spanAt(drag, this.positionAt(drag, clientX, clientY));
   }
 
   private finishDrag(): void {
     const drag = this.drag;
-    const ghost = this._ghost;
-    this.cancelDrag();
-    if (!drag || !ghost) return;
-    if (!drag.moved) {
-      this.fire("background-click");
+    const span = this._span;
+    if (!drag || !span) {
+      this.cancelDrag();
       return;
     }
+    const block = drag.block;
     this.suppressClickUntil = performance.now() + 400;
-    this.fire<CreateBlockDetail>("create-block", {
-      day: ghost.day,
-      start: ghost.start,
-      duration: ghost.end - ghost.start,
-    });
+    if (!block) {
+      if (drag.moved) this.fire<CreateBlockDetail>("create-block", span);
+      else this.fire("background-click");
+    } else if (
+      drag.moved &&
+      (span.day !== block.day || span.start !== block.start || span.duration !== block.duration)
+    ) {
+      this.fire<ResizeBlockDetail>("resize-block", { blockId: block.id, ...span });
+    } else {
+      // Pointer capture keeps the click from reaching the block, so this is the click.
+      this.fire(this.picking ? "pick-block" : "select-block", { blockId: block.id });
+    }
+    // After the event, so the panel shows the new times in the same update.
+    this.cancelDrag();
   }
 
   private cancelDrag(): void {
     cancelAnimationFrame(this.scrollFrame);
+    window.removeEventListener("keydown", this.onDragKey);
     if (this.press) window.clearTimeout(this.press.timer);
     this.press = null;
     this.drag = null;
-    this._ghost = null;
+    this._span = null;
   }
+
+  private readonly onDragKey = (e: KeyboardEvent): void => {
+    if (e.key !== "Escape" || !this.drag) return;
+    e.preventDefault();
+    this.cancelDrag();
+  };
 
   private readonly autoScroll = (): void => {
     const drag = this.drag;
     if (!drag) return;
-    const rect = this.scroller.getBoundingClientRect();
+    const scroller = this.scroller;
+    const rect = scroller.getBoundingClientRect();
     const head =
       (this.renderRoot.querySelector(".day-head") as HTMLElement | null)?.offsetHeight ?? 0;
-    let delta = 0;
-    if (drag.lastY < rect.top + head + EDGE_SCROLL_PX) delta = -12;
-    else if (drag.lastY > rect.bottom - EDGE_SCROLL_PX) delta = 12;
-    if (delta) {
-      this.scroller.scrollTop += delta;
-      this.updateDrag(drag.lastY);
+    const gutter =
+      (this.renderRoot.querySelector(".gutter") as HTMLElement | null)?.offsetWidth ?? 0;
+    let dy = 0;
+    if (drag.lastY < rect.top + head + EDGE_SCROLL_PX) dy = -12;
+    else if (drag.lastY > rect.bottom - EDGE_SCROLL_PX) dy = 12;
+    // On a narrow screen the week scrolls sideways too; follow a drag into the next day.
+    let dx = 0;
+    if (scroller.scrollWidth > scroller.clientWidth) {
+      if (drag.lastX < rect.left + gutter + EDGE_SCROLL_PX) dx = -12;
+      else if (drag.lastX > rect.right - EDGE_SCROLL_PX) dx = 12;
+    }
+    if (dy || dx) {
+      scroller.scrollTop += dy;
+      scroller.scrollLeft += dx;
+      this.updateDrag(drag.lastX, drag.lastY);
     }
     this.scrollFrame = requestAnimationFrame(this.autoScroll);
   };
@@ -236,19 +351,42 @@ export class PcWeekView extends LitElement {
   private onPointerDown(e: PointerEvent, day: number): void {
     if (e.pointerType === "touch" || e.button !== 0 || this.picking) return;
     if ((e.target as HTMLElement).closest(".block")) return;
-    const col = e.currentTarget as HTMLElement;
     e.preventDefault();
-    col.setPointerCapture?.(e.pointerId);
-    this.beginDrag(day, col, e.clientY, false);
+    this.beginCreate(day, e.currentTarget as HTMLElement, e.clientX, e.clientY, e.pointerId);
+  }
+
+  /** Pressing a block's top or bottom edge starts moving its start or end. */
+  private onEdgeDown(e: PointerEvent, block: Block, kind: "start" | "end"): void {
+    // Touch, other buttons and the eyedropper treat the edge as part of the block.
+    if (e.pointerType === "touch" || e.button !== 0 || this.picking) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const col = (e.currentTarget as HTMLElement).closest<HTMLElement>(".col")!;
+    this.beginDrag(
+      {
+        kind,
+        block,
+        day: block.day,
+        anchor: kind === "start" ? block.start + block.duration : block.start,
+        col,
+        startX: e.clientX,
+        startY: e.clientY,
+        lastX: e.clientX,
+        lastY: e.clientY,
+        moved: false,
+        touch: false,
+      },
+      e.pointerId,
+    );
   }
 
   private onPointerMove(e: PointerEvent): void {
-    if (this.drag && !this.drag.touch) this.updateDrag(e.clientY);
+    if (this.drag && !this.drag.touch) this.updateDrag(e.clientX, e.clientY);
   }
 
   private onPointerUp(e: PointerEvent): void {
     if (this.drag && !this.drag.touch) {
-      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+      this.scroller.releasePointerCapture?.(e.pointerId);
       this.finishDrag();
     }
   }
@@ -261,7 +399,7 @@ export class PcWeekView extends LitElement {
     const timer = window.setTimeout(() => {
       this.press = null;
       navigator.vibrate?.(15);
-      this.beginDrag(day, col, touch.clientY, true);
+      this.beginCreate(day, col, touch.clientX, touch.clientY, null);
     }, LONG_PRESS_MS);
     this.press = { day, col, x: touch.clientX, y: touch.clientY, timer };
   }
@@ -280,7 +418,7 @@ export class PcWeekView extends LitElement {
     }
     if (this.drag?.touch) {
       e.preventDefault(); // keep the page from scrolling while dragging
-      this.updateDrag(touch.clientY);
+      this.updateDrag(touch.clientX, touch.clientY);
     }
   };
 
@@ -330,6 +468,7 @@ export class PcWeekView extends LitElement {
     const classes = [
       "block",
       this.selectedIds.includes(block.id) ? "selected" : "",
+      block.id === this.drag?.block?.id ? "resizing" : "",
       state?.active ? "active" : "",
       unmet ? "unmet" : "",
       height < 36 ? "compact" : "",
@@ -374,11 +513,39 @@ export class PcWeekView extends LitElement {
             : nothing
         }
       </span>
+      ${
+        // The edges at midnight of a block that crosses it aren't its start or end.
+        seg.continuation
+          ? nothing
+          : html`<span
+              class="edge top"
+              @pointerdown=${(e: PointerEvent) => this.onEdgeDown(e, block, "start")}
+            ></span>`
+      }
+      ${
+        seg.continues
+          ? nothing
+          : html`<span
+              class="edge bottom"
+              @pointerdown=${(e: PointerEvent) => this.onEdgeDown(e, block, "end")}
+            ></span>`
+      }
     </button>`;
+  }
+
+  private renderGhost(span: CreateBlockDetail, seg: Segment): TemplateResult {
+    const hour = this.hourHeight;
+    return html`<div
+      class="ghost ${seg.continuation ? "continuation" : ""} ${seg.continues ? "continues" : ""}"
+      style="top:${(seg.start / 60) * hour}px;height:${((seg.end - seg.start) / 60) * hour}px"
+    >
+      ${formatRange(span.start, span.duration, this.use24h)}
+    </div>`;
   }
 
   private renderColumn(
     day: number,
+    index: number,
     items: { block: Block; seg: Segment }[],
     conflicts: Map<string, Conflict[]>,
   ): TemplateResult {
@@ -394,14 +561,16 @@ export class PcWeekView extends LitElement {
     );
     const byId = new Map(placed.map((p) => [p.id, p]));
     const states = this.hass?.states ?? {};
-    const ghost = this._ghost?.day === day ? this._ghost : null;
+    const span = this.drag?.kind === "create" ? this._span : null;
+    const ghosts = span
+      ? segments(span.day, span.start, span.duration).filter((seg) => seg.day === day)
+      : [];
     const today = this._now.day === day;
     return html`<div
       class="col ${today ? "today" : ""}"
+      data-day=${day}
+      data-index=${index}
       @pointerdown=${(e: PointerEvent) => this.onPointerDown(e, day)}
-      @pointermove=${this.onPointerMove}
-      @pointerup=${this.onPointerUp}
-      @pointercancel=${() => this.cancelDrag()}
       @touchstart=${{ handleEvent: (e: TouchEvent) => this.onTouchStart(e, day), passive: true }}
       @touchend=${(e: TouchEvent) => this.onTouchEnd(e)}
       @touchcancel=${() => this.cancelDrag()}
@@ -414,16 +583,7 @@ export class PcWeekView extends LitElement {
         );
         return this.renderBlock(block, seg, p, conflicts.get(block.id), missing);
       })}
-      ${
-        ghost
-          ? html`<div
-              class="ghost"
-              style="top:${(ghost.start / 60) * this.hourHeight}px;height:${((ghost.end - ghost.start) / 60) * this.hourHeight}px"
-            >
-              ${formatMinute(ghost.start, this.use24h)} – ${formatMinute(ghost.end, this.use24h)}
-            </div>`
-          : nothing
-      }
+      ${ghosts.map((seg) => this.renderGhost(span!, seg))}
       ${
         today
           ? html`<div class="now" style="top:${(this._now.minute / 60) * this.hourHeight}px"></div>`
@@ -435,7 +595,11 @@ export class PcWeekView extends LitElement {
   protected override render() {
     if (!this.config) return nothing;
     const days = displayDays(this.config.settings.week_start);
-    const blocks = this.config.blocks.filter((b) => b.tab_id === this.tabId);
+    // A block whose edge is being dragged is drawn with its new times.
+    const resizing = this.drag?.block && this._span ? this.drag.block.id : null;
+    const blocks = this.config.blocks
+      .filter((b) => b.tab_id === this.tabId)
+      .map((b) => (b.id === resizing ? { ...b, ...this._span } : b));
     const conflicts = findConflicts(blocks);
     const byDay = new Map<number, { block: Block; seg: Segment }[]>();
     for (const block of blocks) {
@@ -446,8 +610,11 @@ export class PcWeekView extends LitElement {
       }
     }
     return html`<div
-      class="scroller ${this.picking ? "picking" : ""} ${this.tabInactive() ? "tab-off" : ""}"
+      class="scroller ${this.picking ? "picking" : ""} ${this.tabInactive() ? "tab-off" : ""} ${resizing ? "resizing" : ""}"
       style="--hour:${this.hourHeight}px"
+      @pointermove=${this.onPointerMove}
+      @pointerup=${this.onPointerUp}
+      @pointercancel=${() => this.cancelDrag()}
     >
       <div class="grid" role="grid" aria-label="Week schedule">
         <div class="corner"></div>
@@ -463,7 +630,7 @@ export class PcWeekView extends LitElement {
               html`<span style="top:${h * this.hourHeight}px">${formatHour(h, this.use24h)}</span>`,
           )}
         </div>
-        ${days.map((d) => this.renderColumn(d, byDay.get(d) ?? [], conflicts))}
+        ${days.map((d, i) => this.renderColumn(d, i, byDay.get(d) ?? [], conflicts))}
       </div>
     </div>`;
   }
@@ -654,8 +821,57 @@ export class PcWeekView extends LitElement {
       .badges .warn {
         color: var(--pc-warning);
       }
+      /* Drag a block's top or bottom edge to move its start or end. */
+      .edge {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 6px;
+        cursor: ns-resize;
+      }
+      .edge.top {
+        top: 0;
+      }
+      .edge.bottom {
+        bottom: 0;
+      }
+      .edge::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        width: 20px;
+        height: 2px;
+        margin-left: -10px;
+        border-radius: 1px;
+        background: var(--block-color);
+        opacity: 0;
+        transition: opacity 0.1s;
+      }
+      .edge.top::after {
+        top: 2px;
+      }
+      .edge.bottom::after {
+        bottom: 2px;
+      }
+      .edge:hover::after,
+      .block.resizing .edge::after {
+        opacity: 1;
+      }
+      .block.resizing {
+        z-index: 2;
+      }
+      .scroller.resizing,
+      .scroller.resizing * {
+        cursor: ns-resize !important;
+      }
       .picking .block {
         cursor: copy;
+      }
+      .picking .edge {
+        cursor: inherit;
+      }
+      .picking .edge::after {
+        display: none;
       }
       .picking .block:hover {
         outline: 2px dashed var(--pc-primary);
@@ -675,6 +891,14 @@ export class PcWeekView extends LitElement {
         font-size: 0.8em;
         font-weight: 500;
         pointer-events: none;
+      }
+      .ghost.continuation {
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+      }
+      .ghost.continues {
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
       }
       .now {
         position: absolute;

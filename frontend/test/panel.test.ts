@@ -265,6 +265,40 @@ function tapDial(picker: Element, x: number, y: number): void {
   }
 }
 
+const HOUR = 48;
+const COLUMN = 100;
+
+/** Give the day columns real positions: column i spans x = 52 + 100i to 152 + 100i. */
+function layOutColumns(): HTMLElement[] {
+  const cols = [...shadow(weekView()).querySelectorAll<HTMLElement>(".col")];
+  cols.forEach((col, i) => {
+    const left = 52 + i * COLUMN;
+    col.getBoundingClientRect = () =>
+      ({ left, right: left + COLUMN, top: 0, bottom: 24 * HOUR, width: COLUMN }) as DOMRect;
+  });
+  return cols;
+}
+
+/** The middle of day column i, as laid out by layOutColumns. */
+const columnX = (i: number) => 52 + i * COLUMN + COLUMN / 2;
+
+const scroller = () => shadow(weekView()).querySelector(".scroller")!;
+
+function mouse(target: Element, type: string, x: number, y: number): void {
+  target.dispatchEvent(
+    new PointerEvent(type, {
+      clientX: x,
+      clientY: y,
+      button: 0,
+      pointerType: "mouse",
+      pointerId: 1,
+      bubbles: true,
+    }),
+  );
+}
+
+const edgeSaves = () => fake.calls.filter((c) => c.type === "punch_clock/blocks/update");
+
 beforeAll(async () => {
   await import("../src/main");
 });
@@ -346,6 +380,96 @@ describe("punch-clock-panel", () => {
       start: 480,
       duration: 120,
     });
+  });
+
+  it("creates a block past midnight by dragging into the next or previous day", async () => {
+    await mount();
+    const cols = layOutColumns(); // Sun, Mon, Tue, ...
+    mouse(cols[1]!, "pointerdown", columnX(1), 22 * HOUR); // Monday 22:00
+    mouse(scroller(), "pointermove", columnX(2), 1 * HOUR); // over Tuesday 01:00
+    await settle(el);
+    expect(cols[1]!.querySelector(".ghost")?.textContent).toContain("22:00 – 01:00");
+    expect(cols[2]!.querySelector(".ghost")).not.toBeNull();
+    mouse(scroller(), "pointermove", columnX(2), 2 * HOUR);
+    mouse(scroller(), "pointerup", columnX(2), 2 * HOUR);
+    await settle(el);
+    const creates = () =>
+      fake.calls
+        .filter((c) => c.type === "punch_clock/blocks/create")
+        .map((c) => (c.blocks as Block[])[0]);
+    expect(creates()[0]).toMatchObject({ day: 0, start: 1320, duration: 240 });
+
+    // Monday 01:00 up into Sunday 23:00.
+    mouse(cols[1]!, "pointerdown", columnX(1), 1 * HOUR);
+    mouse(scroller(), "pointermove", columnX(0), 23 * HOUR);
+    mouse(scroller(), "pointerup", columnX(0), 23 * HOUR);
+    await settle(el);
+    expect(creates()[1]).toMatchObject({ day: 6, start: 1380, duration: 135 });
+  });
+
+  it("moves a block's start or end by dragging its top or bottom edge", async () => {
+    await mount();
+    layOutColumns();
+    const target = () => blocks().find((b) => b.textContent?.includes("Target"))!; // Wed 10-11
+    mouse(target().querySelector(".edge.bottom")!, "pointerdown", columnX(3), 11 * HOUR - 3);
+    mouse(scroller(), "pointermove", columnX(3), 12 * HOUR);
+    await settle(el);
+    expect(target().getAttribute("style")).toContain(`height:${2 * HOUR - 2}px`);
+    expect(target().textContent).toContain("10:00 – 12:00");
+    mouse(scroller(), "pointermove", columnX(3), 12.5 * HOUR);
+    mouse(scroller(), "pointerup", columnX(3), 12.5 * HOUR);
+    await settle(el);
+    expect(edgeSaves()).toEqual([
+      expect.objectContaining({
+        block_id: "b_target",
+        changes: { day: 2, start: 600, duration: 150 },
+      }),
+    ]);
+    // Shown with its new times while saving, and not opened in the editor.
+    expect(target().getAttribute("style")).toContain(`height:${2.5 * HOUR - 2}px`);
+    expect(editor()).toBeNull();
+
+    // Morning's start, Monday 06:00, back to Sunday 22:00.
+    const morning = blocks().find((b) => b.textContent?.includes("Morning"))!;
+    mouse(morning.querySelector(".edge.top")!, "pointerdown", columnX(1), 6 * HOUR + 2);
+    mouse(scroller(), "pointermove", columnX(0), 22 * HOUR);
+    mouse(scroller(), "pointerup", columnX(0), 22 * HOUR);
+    await settle(el);
+    expect(edgeSaves()[1]).toMatchObject({
+      block_id: "b_morning",
+      changes: { day: 6, start: 1320, duration: 600 },
+    });
+  });
+
+  it("selects a block when its edge is clicked, and edits the draft if it has unsaved changes", async () => {
+    await mount();
+    layOutColumns();
+    const edge = () =>
+      blocks()
+        .find((b) => b.textContent?.includes("Target"))!
+        .querySelector(".edge.bottom")!;
+    mouse(edge(), "pointerdown", columnX(3), 11 * HOUR - 3);
+    mouse(scroller(), "pointerup", columnX(3), 11 * HOUR - 3);
+    await settle(el);
+    const ed = editor()!;
+    expect(ed._draft.id).toBe("b_target");
+
+    shadow(ed).querySelector<HTMLButtonElement>('.swatch[aria-label="#33b679"]')!.click();
+    await settle(el);
+    mouse(edge(), "pointerdown", columnX(3), 11 * HOUR - 3);
+    mouse(scroller(), "pointermove", columnX(3), 12 * HOUR);
+    mouse(scroller(), "pointerup", columnX(3), 12 * HOUR);
+    await settle(el);
+    expect(edgeSaves()).toHaveLength(0);
+    expect(ed._draft).toMatchObject({ color: "#33b679", start: 600, duration: 120 });
+
+    // Esc cancels a drag.
+    mouse(edge(), "pointerdown", columnX(3), 12 * HOUR - 3);
+    mouse(scroller(), "pointermove", columnX(3), 14 * HOUR);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    mouse(scroller(), "pointerup", columnX(3), 14 * HOUR);
+    await settle(el);
+    expect(ed._draft.duration).toBe(120);
   });
 
   it("copies actions and conditions with the eyedropper after confirming", async () => {

@@ -56,8 +56,14 @@ Requires Home Assistant 2026.3 or newer.
 Open **Punch Clock** in the sidebar.
 
 - **Create a block.** With a mouse, drag down a day column. On a touch screen, press and hold,
-  then drag. The **+ Block** button adds a one-hour block at the next full hour. Each day column
-  keeps a strip on its right free, so you can always drag out a new block next to existing ones.
+  then drag. For a block that runs past midnight, carry on into the next day's column (or up
+  into the previous day's). The **+ Block** button adds a one-hour block at the next full hour.
+  Each day column keeps a strip on its right free, so you can always drag out a new block next
+  to existing ones.
+- **Change a block's times in the calendar.** With a mouse, drag a block's top or bottom edge to
+  move its start or stop time, into the next or previous day's column to cross midnight. The
+  change is saved right away, unless the block is open in the editor with unsaved changes: then
+  it joins them, and **Save** keeps it. Press Esc during a drag to cancel it.
 - **Edit a block.** Click it. The editor sets the name, color, day, start and stop times (a stop
   earlier than the start ends the next day), actions and conditions. Click a start or stop time to
   pick it on a clock dial: choose the hour, then the minute (the keyboard icon lets you type it
