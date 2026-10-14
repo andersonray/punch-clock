@@ -19,7 +19,8 @@ a calendar.
 - **Multiple week tabs.** Each tab is a separate week schedule with its own conditions, such as
   "Workweek", "Vacation" or "Guests". Every tab whose conditions are true runs at the same time,
   and the leftmost tab wins when two tabs conflict.
-- **Default values.** Each tab can have per-entity values to fall back to when no block is active.
+- **Default values.** Each tab can have per-entity values to fall back to when no running block,
+  in any tab, is setting them.
 - **Copying blocks.** *Duplicate* copies a block to other days or tabs. The *eyedropper* applies
   another block's actions and conditions to the selected one.
 - **Exposed entities.** A master switch, a switch per tab, and a binary sensor per tab, for use in

@@ -12,8 +12,8 @@ This document defines exactly what Punch Clock does at runtime. The pure logic i
 - **Action**: either an *entity action* (an entity plus the settings to apply, such as
   `{"hvac_mode": "heat", "temperature": 68}`), or a *service action* (a raw service call
   with a target and data).
-- **Default values**: entity actions on a tab that apply when no active block in that tab
-  sets the same entity and setting.
+- **Default values**: entity actions on a tab that apply while the tab is active and no active
+  block, in that tab or any other, sets the same entity and setting (see "Desired state").
 - **Setting key**: one unit of desired state for an entity, e.g. `climate.house` +
   `temperature`. Some keys are compound (`temp_range: {low, high}`) because their parts must
   be set together. See `settings-keys.md`.
