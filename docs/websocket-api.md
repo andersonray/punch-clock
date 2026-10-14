@@ -31,6 +31,10 @@ part is invalid.
 The server assigns the IDs of new tabs and blocks. When blocks are created, the nested
 condition and action IDs are always regenerated, so duplicated blocks never share IDs.
 
+The server doesn't know about block groups. The panel treats blocks in one tab with the same
+name and color as a group, and saves or deletes a group with `blocks/update_many` or
+`blocks/delete_many`.
+
 ## Subscription
 
 `punch_clock/subscribe` returns an empty result, then sends events:

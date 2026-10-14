@@ -99,7 +99,8 @@ export class PcDuplicateDialog extends LitElement {
       @closed=${() => this.dispatchEvent(new CustomEvent("closed"))}
     >
       <p class="muted">
-        Copies the name, color, actions and conditions to new blocks on the days you pick.
+        Copies the name, color, actions and conditions to new blocks on the days you pick. If the
+        block has a name, copies in the same tab join its group.
       </p>
       <fieldset>
         <legend>Days</legend>

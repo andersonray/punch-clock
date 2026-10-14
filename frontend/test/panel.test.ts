@@ -1,9 +1,10 @@
 // Smoke test: mount the whole panel against a fake `hass` and drive the main flows.
 
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import type { Block, Config, HomeAssistant, Status } from "../src/types";
+import type { Block, BlockUpdate, Config, HomeAssistant, Status } from "../src/types";
 import type { PunchClockPanel } from "../src/panel/punch-clock-panel";
 import type { PcBlockEditor } from "../src/components/pc-block-editor";
+import type { PcConfirmDialog } from "../src/components/pc-confirm-dialog";
 
 declare const __PC_VERSION__: string;
 
@@ -89,9 +90,22 @@ interface Fake {
   calls: Record<string, unknown>[];
 }
 
-function fakeHass(config: Config, status: Status = makeStatus()): Fake {
+/** A fake Home Assistant whose block commands change the config and push it, like the server. */
+function fakeHass(initial: Config, status: Status = makeStatus()): Fake {
   localStorage.clear();
   const calls: Record<string, unknown>[] = [];
+  let config = initial;
+  let push: ((message: unknown) => void) | null = null;
+  const commit = (blocks: Block[]) => {
+    config = { ...config, revision: config.revision + 1, blocks };
+    push?.({ kind: "config", config: structuredClone(config) });
+  };
+  const update = (updates: BlockUpdate[]) => {
+    const changes = new Map(updates.map((u) => [u.block_id, u.changes]));
+    commit(config.blocks.map((b) => ({ ...b, ...changes.get(b.id) })));
+    return config.blocks.filter((b) => changes.has(b.id));
+  };
+  const remove = (ids: string[]) => commit(config.blocks.filter((b) => !ids.includes(b.id)));
   const hass = {
     states: {
       "climate.house": {
@@ -126,15 +140,30 @@ function fakeHass(config: Config, status: Status = makeStatus()): Fake {
           return { id: "g", type: "group", result: false, items: [] } as T;
         case "punch_clock/blocks/create": {
           const inputs = msg.blocks as Omit<Block, "id" | "seq">[];
-          return { blocks: inputs.map((b, i) => ({ ...b, id: `b_new${i}`, seq: 10 + i })) } as T;
+          const blocks = inputs.map((b, i) => ({ ...b, id: `b_new${i}`, seq: 10 + i }));
+          commit([...config.blocks, ...blocks]);
+          return { blocks } as T;
         }
+        case "punch_clock/blocks/update": {
+          const [block] = update([msg as unknown as BlockUpdate]);
+          return { block } as T;
+        }
+        case "punch_clock/blocks/update_many":
+          return { blocks: update(msg.updates as BlockUpdate[]) } as T;
+        case "punch_clock/blocks/delete":
+          remove([msg.block_id as string]);
+          return {} as T;
+        case "punch_clock/blocks/delete_many":
+          remove(msg.block_ids as string[]);
+          return {} as T;
         default:
           return {} as T;
       }
     },
     connection: {
       async subscribeMessage<T>(callback: (message: T) => void) {
-        callback({ kind: "config", config } as T);
+        push = callback as (message: unknown) => void;
+        callback({ kind: "config", config: structuredClone(config) } as T);
         callback({ kind: "status", status } as T);
         return async () => {};
       },
@@ -175,6 +204,45 @@ const blocks = () => [...shadow(weekView()).querySelectorAll<HTMLButtonElement>(
 const editor = () => shadow(el).querySelector("pc-block-editor") as PcBlockEditor | null;
 
 const timeInputs = (ed: Element) => [...shadow(ed).querySelectorAll("pc-time-input")];
+const whenRows = (ed: Element) => [...shadow(ed).querySelectorAll(".when-row:not(.head)")];
+const selected = () => blocks().filter((b) => b.classList.contains("selected"));
+/** Answer the panel's confirmation dialog (or the one in `host`, such as the editor). */
+const confirmChoice = async (label: string, host: Element = el) => {
+  const dialog = shadow(host).querySelector("pc-confirm-dialog")!;
+  [...shadow(dialog).querySelectorAll("button")]
+    .find((b) => b.textContent?.trim() === label)!
+    .click();
+  await settle(el);
+};
+/** Click the index-th calendar block (in column order) whose text includes `text`. */
+const clickBlock = async (text: string, index = 0) => {
+  const matching = blocks().filter((b) => b.textContent?.includes(text));
+  matching[index]!.click();
+  await settle(el);
+};
+const lastCall = (type: string) => fake.calls.findLast((c) => c.type === `punch_clock/${type}`);
+const updates = () =>
+  fake.calls
+    .filter((c) => c.type === "punch_clock/blocks/update_many")
+    .flatMap((c) => c.updates as BlockUpdate[]);
+
+/** Type a new name and leave the field. */
+function rename(ed: Element, name: string): void {
+  const field = shadow(ed).querySelector<HTMLInputElement>(".name")!;
+  field.value = name;
+  field.dispatchEvent(new Event("input"));
+  field.dispatchEvent(new Event("change"));
+}
+
+/** "Morning" also runs on Wednesday and Friday; a purple "Morning" isn't in its group. */
+function addMorningGroup(config: Config): void {
+  const morning = config.blocks.find((b) => b.id === "b_morning")!;
+  config.blocks.push(
+    { ...structuredClone(morning), id: "b_wed", seq: 4, day: 2, start: 420 },
+    { ...structuredClone(morning), id: "b_fri", seq: 5, day: 4, start: 480 },
+    { ...structuredClone(morning), id: "b_purple", seq: 6, day: 5, color: "#8e24aa" },
+  );
+}
 
 const headerText = (picker: Element) =>
   [...shadow(picker).querySelectorAll(".seg")].map((b) => b.textContent?.trim());
@@ -330,7 +398,7 @@ describe("punch-clock-panel", () => {
     const morningBlocks = blocks().filter((b) => b.textContent?.includes("Morning"));
     expect(morningBlocks).toHaveLength(2);
     expect(morningBlocks.every((b) => b.getAttribute("style")?.includes("#8e24aa"))).toBe(true);
-    expect(fake.calls.some((c) => c.type === "punch_clock/blocks/update")).toBe(false);
+    expect(updates()).toEqual([]);
   });
 
   it("previews a new color immediately and a new name after leaving the field", async () => {
@@ -519,7 +587,7 @@ describe("punch-clock-panel", () => {
     await settle(el);
     const moved = blocks().find((b) => b.textContent?.includes("Target"))!;
     expect(moved.getAttribute("style")).toContain("top:492px"); // 10:15 at 48 px per hour
-    expect(fake.calls.some((c) => c.type === "punch_clock/blocks/update")).toBe(false);
+    expect(updates()).toEqual([]);
 
     [...shadow(ed).querySelectorAll("button")]
       .find((b) => b.textContent?.trim() === "Discard")!
@@ -600,8 +668,7 @@ describe("punch-clock-panel", () => {
     // Save writes the block, then moves on.
     await leave();
     await choose("Save");
-    const update = fake.calls.find((c) => c.type === "punch_clock/blocks/update")!;
-    expect(update).toMatchObject({ block_id: "b_target", changes: { color: "#33b679" } });
+    expect(updates()).toMatchObject([{ block_id: "b_target", changes: { color: "#33b679" } }]);
     expect(editor()!._draft.id).toBe("b_morning");
   });
 
@@ -628,7 +695,7 @@ describe("punch-clock-panel", () => {
     await settle(el);
     expect(editor()!._draft.id).toBe("b_target");
     expect(shadow(editor()).querySelector(".error-text")?.textContent).toContain("needs an entity");
-    expect(fake.calls.some((c) => c.type === "punch_clock/blocks/update")).toBe(false);
+    expect(updates()).toEqual([]);
   });
 
   it("uses the clock setting for times", async () => {
@@ -668,5 +735,211 @@ describe("punch-clock-panel", () => {
     expect(created.map((b) => b.day)).toEqual([1, 3]);
     expect(created[0]).toMatchObject({ start: 360, duration: 120, name: "Morning" });
     expect(created[0]!.actions[0]!.id).not.toBe("a_1");
+  });
+
+  it("selects a whole group and lists the time of each of its blocks", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Morning", 1); // Wednesday
+    const ed = editor()!;
+    expect(ed._draft.id).toBe("b_wed");
+    expect(ed._whens.map((w) => w.id)).toEqual(["b_morning", "b_wed", "b_fri"]);
+    expect(selected()).toHaveLength(3);
+    const rows = whenRows(ed);
+    expect(rows).toHaveLength(3);
+    expect(rows[1]!.classList.contains("current")).toBe(true);
+    expect(rows.every((r) => r.querySelector('[aria-label^="Split"]'))).toBe(true);
+
+    // A block on its own has one time and nothing to split.
+    await clickBlock("Target");
+    expect(whenRows(editor()!)).toHaveLength(1);
+    expect(shadow(editor()).querySelector('[aria-label^="Split"]')).toBeNull();
+    expect(selected()).toHaveLength(1);
+  });
+
+  it("saves the shared settings and each block's times at once", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Morning");
+    const ed = editor()!;
+    shadow(ed).querySelector<HTMLButtonElement>('.swatch[aria-label="#33b679"]')!.click();
+    await settle(el);
+    const friday = whenRows(ed)[2]!.querySelector("select")!;
+    friday.value = "5";
+    friday.dispatchEvent(new Event("change"));
+    await settle(el);
+    // The calendar shows the change for every block of the group before saving.
+    expect(selected().every((b) => b.getAttribute("style")?.includes("#33b679"))).toBe(true);
+    expect(updates()).toEqual([]);
+
+    buttonNamed(ed, "Save").click();
+    await settle(el);
+    const saved = updates();
+    expect(saved.map((u) => u.block_id)).toEqual(["b_morning", "b_wed", "b_fri"]);
+    expect(saved.map((u) => u.changes.day)).toEqual([0, 2, 5]);
+    expect(saved.every((u) => u.changes.color === "#33b679" && u.changes.name === "Morning")).toBe(
+      true,
+    );
+    expect(saved[2]!.changes.actions).toEqual(saved[0]!.changes.actions);
+    expect(fake.calls.filter((c) => c.type === "punch_clock/blocks/update_many")).toHaveLength(1);
+    expect(ed.dirty).toBe(false);
+  });
+
+  it("asks before saving a block with another group's name and color", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Target");
+    const ed = editor()!;
+    rename(ed, "Morning"); // Target already has Morning's color
+    await settle(el);
+    expect(ed._whens.map((w) => w.id)).toEqual(["b_target"]); // nothing joins before saving
+    expect(selected()).toHaveLength(1);
+
+    // Cancel keeps the changes unsaved, so the name or color can be changed.
+    buttonNamed(ed, "Save").click();
+    await settle(el);
+    const ask = shadow(ed).querySelector<PcConfirmDialog>("pc-confirm-dialog")!;
+    expect(ask._options?.heading).toBe('Join the "Morning" group?');
+    await confirmChoice("Cancel", ed);
+    expect(updates()).toEqual([]);
+    expect(ed.dirty).toBe(true);
+
+    // Joining takes the group's actions and conditions.
+    buttonNamed(ed, "Save").click();
+    await settle(el);
+    await confirmChoice("Replace and join", ed);
+    expect(updates()).toMatchObject([
+      {
+        block_id: "b_target",
+        changes: {
+          name: "Morning",
+          actions: [{ entity_id: "climate.house", settings: { temperature: 21 } }],
+          conditions: { items: [{ entity_id: "input_boolean.guests" }] },
+        },
+      },
+    ]);
+    expect(ed._whens.map((w) => w.id)).toEqual(["b_morning", "b_wed", "b_target", "b_fri"]);
+    expect(selected()).toHaveLength(4);
+    expect(ed.dirty).toBe(false);
+  });
+
+  it("joins a group without asking when the actions and conditions match", async () => {
+    await mount((config) => {
+      addMorningGroup(config);
+      const morning = config.blocks.find((b) => b.id === "b_morning")!;
+      config.blocks.push({ ...structuredClone(morning), id: "b_thu", day: 3, name: "Brunch" });
+    });
+    await clickBlock("Brunch");
+    const ed = editor()!;
+    rename(ed, "Morning");
+    await settle(el);
+    buttonNamed(ed, "Save").click();
+    await settle(el);
+    expect(shadow(ed).querySelector<PcConfirmDialog>("pc-confirm-dialog")!._options).toBeNull();
+    expect(updates()).toMatchObject([{ block_id: "b_thu", changes: { name: "Morning" } }]);
+    expect(ed._whens).toHaveLength(4);
+  });
+
+  it("splits a block off from its group with a numbered name", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Morning");
+    whenRows(editor()!)[1]!.querySelector<HTMLButtonElement>('[aria-label^="Split"]')!.click();
+    await settle(el);
+    expect(lastCall("blocks/update")).toMatchObject({
+      block_id: "b_wed",
+      changes: { name: "Morning 1" },
+    });
+    const ed = editor()!;
+    expect(ed._draft).toMatchObject({ id: "b_wed", name: "Morning 1" });
+    expect(whenRows(ed)).toHaveLength(1);
+    expect(selected()).toHaveLength(1);
+
+    // The next one split off gets the next number.
+    await clickBlock("Morning", 0);
+    whenRows(editor()!)[1]!.querySelector<HTMLButtonElement>('[aria-label^="Split"]')!.click();
+    await settle(el);
+    expect(editor()!._draft).toMatchObject({ id: "b_fri", name: "Morning 2" });
+  });
+
+  it("asks to save unsaved changes before splitting", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Morning");
+    const ed = editor()!;
+    shadow(ed).querySelector<HTMLButtonElement>('.swatch[aria-label="#33b679"]')!.click();
+    await settle(el);
+    whenRows(ed)[2]!.querySelector<HTMLButtonElement>('[aria-label^="Split"]')!.click();
+    await settle(el);
+    await confirmChoice("Save");
+    expect(updates()).toHaveLength(3);
+    expect(lastCall("blocks/update")).toMatchObject({
+      block_id: "b_fri",
+      changes: { name: "Morning 1" },
+    });
+    expect(editor()!._draft).toMatchObject({ id: "b_fri", color: "#33b679" });
+    expect(whenRows(editor()!)).toHaveLength(1);
+  });
+
+  it("groups a block with the one the eyedropper copies from", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Target");
+    const ed = editor()!;
+    shadow(ed).querySelector<HTMLButtonElement>('[aria-label^="Copy actions"]')!.click();
+    await settle(el);
+    await clickBlock("Morning", 1);
+    await confirmChoice("Replace");
+    expect(ed._draft.id).toBe("b_target");
+    expect(ed._whens.map((w) => w.id)).toEqual(["b_morning", "b_wed", "b_target", "b_fri"]);
+    expect(selected()).toHaveLength(4);
+    expect(shadow(el).querySelector(".toast")?.textContent).toContain('Grouped with "Morning"');
+
+    // Only the block that changed is written.
+    buttonNamed(ed, "Save").click();
+    await settle(el);
+    expect(updates()).toMatchObject([
+      { block_id: "b_target", changes: { name: "Morning", day: 2, start: 600 } },
+    ]);
+    expect(ed._whens).toHaveLength(4);
+    expect(ed.dirty).toBe(false);
+  });
+
+  it("drops an earlier eyedropper group when copying from another block", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Target");
+    const ed = editor()!;
+    for (const source of ["Morning", "Night"]) {
+      shadow(ed).querySelector<HTMLButtonElement>('[aria-label^="Copy actions"]')!.click();
+      await settle(el);
+      await clickBlock(source);
+      await confirmChoice("Replace");
+    }
+    expect(ed._whens.map((w) => w.id)).toEqual(["b_target", "b_night"]);
+  });
+
+  it("keeps unsaved changes when clicking another block of the group", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Morning");
+    const ed = editor()!;
+    shadow(ed).querySelector<HTMLButtonElement>('.swatch[aria-label="#33b679"]')!.click();
+    await settle(el);
+    await clickBlock("Morning", 2); // Friday, in the calendar's unsaved color
+    expect(shadow(el).querySelector<PcConfirmDialog>("pc-confirm-dialog")!._options).toBeNull();
+    expect(ed._draft).toMatchObject({ id: "b_fri", color: "#33b679" });
+    expect(ed.dirty).toBe(true);
+    expect(whenRows(ed)[2]!.classList.contains("current")).toBe(true);
+  });
+
+  it("deletes one block of a group or the whole group", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Morning", 1);
+    shadow(editor()).querySelector<HTMLButtonElement>('[aria-label="Delete block"]')!.click();
+    await settle(el);
+    await confirmChoice("Just this one");
+    expect(lastCall("blocks/delete")).toMatchObject({ block_id: "b_wed" });
+    expect(editor()!._whens.map((w) => w.id)).toEqual(["b_morning", "b_fri"]);
+    expect(selected()).toHaveLength(2);
+
+    shadow(editor()).querySelector<HTMLButtonElement>('[aria-label="Delete block"]')!.click();
+    await settle(el);
+    await confirmChoice("All 2");
+    expect(lastCall("blocks/delete_many")).toMatchObject({ block_ids: ["b_morning", "b_fri"] });
+    expect(editor()).toBeNull();
+    expect(blocks().some((b) => b.textContent?.includes("Morning"))).toBe(true); // the purple one
   });
 });

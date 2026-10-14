@@ -116,6 +116,12 @@ sends `SIGNAL_STATUS_UPDATED` → subscribers get the status.
   editor edits a **draft** and emits `preview-changed` (name, color, day, times); the panel overlays
   that on the config it passes to the calendar (`viewConfig`, memoized), so unsaved edits show live.
   The week view ignores updates where only `hass` changed.
+- **Block groups** exist only in the frontend: blocks in one tab with the same non-empty name and
+  color (`model.blockGroup`). The editor edits the whole group: `_draft` holds the shared name,
+  color, actions and conditions, `_whens` each block's day and times, and Save writes every changed
+  block with one `blocks/update_many`. The eyedropper pulls the source's group in. Saving with
+  another group's name and color asks to take that group's actions and conditions and join it
+  (`joinMatchingGroup`). Splitting renames one block (`model.splitName`).
 - `src/logic/` mirrors parts of the backend: `capabilities.ts` ↔ `actions.DOMAIN_KEYS` (which
   settings the editor offers per domain), `time.segments` ↔ `timemath.segments`, and
   `model.findConflicts` ↔ the resolver's same-tab rules. `tests/fixtures/entities.json` is shared

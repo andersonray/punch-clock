@@ -4,6 +4,13 @@
 
 ### Added
 
+- Block groups: blocks in a tab with the same name and color share their actions and
+  conditions. Selecting one highlights the group, and the editor lists every block's day and
+  times, so one edit changes them all. A split icon on each row takes a block out of the group
+  under a numbered name, and the eyedropper adds the block you're editing to the group it copies
+  from. Saving a block with another group's name and color asks whether to take that group's
+  actions and conditions and join it. Deleting a grouped block offers to delete just it or the
+  whole group.
 - `punch_clock/blocks/update_many` and `punch_clock/blocks/delete_many` WebSocket commands, which
   change several blocks in one revision.
 

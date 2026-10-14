@@ -70,7 +70,7 @@ export class PcWeekView extends LitElement {
     config: { attribute: false },
     tabId: {},
     status: { attribute: false },
-    selectedId: {},
+    selectedIds: { attribute: false },
     picking: { type: Boolean },
     use24h: { type: Boolean },
     language: {},
@@ -85,7 +85,8 @@ export class PcWeekView extends LitElement {
   declare config: Config;
   declare tabId: string;
   declare status: Status | null;
-  declare selectedId: string | null;
+  /** The selected block and the rest of its group. */
+  declare selectedIds: string[];
   /** Eyedropper mode: clicking a block picks it instead of selecting it. */
   declare picking: boolean;
   declare use24h: boolean;
@@ -107,7 +108,7 @@ export class PcWeekView extends LitElement {
   constructor() {
     super();
     this.status = null;
-    this.selectedId = null;
+    this.selectedIds = [];
     this.picking = false;
     this.use24h = false;
     this.language = "en";
@@ -326,7 +327,7 @@ export class PcWeekView extends LitElement {
     const unmet = state !== undefined && !state.conditions_met;
     const classes = [
       "block",
-      block.id === this.selectedId ? "selected" : "",
+      this.selectedIds.includes(block.id) ? "selected" : "",
       state?.active ? "active" : "",
       unmet ? "unmet" : "",
       height < 36 ? "compact" : "",
