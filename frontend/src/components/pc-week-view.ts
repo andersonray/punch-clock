@@ -19,7 +19,14 @@ import {
 import { layoutDay, type Placed } from "../logic/layout";
 import { blockLabel, countConditions, findConflicts, type Conflict } from "../logic/model";
 import { controls } from "../styles";
-import { icon, mdiAlertOutline, mdiFilterOff, mdiFilterVariant } from "../icons";
+import {
+  icon,
+  mdiAlertOutline,
+  mdiChevronLeft,
+  mdiChevronRight,
+  mdiFilterOff,
+  mdiFilterVariant,
+} from "../icons";
 
 /** A block's day and times. The start is a minute of the day; it may run past midnight. */
 export interface CreateBlockDetail {
@@ -68,6 +75,12 @@ const MOVE_TOLERANCE_PX = 8;
 /** Pressing on a block's edge is meant to move it, so a smaller movement counts. */
 const RESIZE_TOLERANCE_PX = 3;
 const EDGE_SCROLL_PX = 48;
+/** A wheel event at least this big (in pixels) is a mouse wheel notch, not a touchpad. */
+const WHEEL_NOTCH_PX = 50;
+/** How far a touchpad swipe goes before it changes the day (once per swipe). */
+const SWIPE_PX = 120;
+/** A pause this long between wheel events ends a touchpad swipe. */
+const SWIPE_END_MS = 200;
 const MIN_BLOCK_PX = 18;
 /** Space left below every block, so back-to-back blocks don't run together. */
 const BLOCK_GAP_PX = 2;
@@ -78,6 +91,9 @@ const BLOCK_GAP_PX = 2;
  * stays free so new blocks can always be dragged out. Dragging a block's top or
  * bottom edge changes its start or end. While drawing out a block or dragging an
  * edge, the pointer can move into the next or previous day's column to cross midnight.
+ *
+ * Clicking a day's name shows only that day, with buttons (and Shift+scroll) for the
+ * previous and next day; clicking the name again shows the whole week.
  *
  * Events: `create-block` (CreateBlockDetail), `resize-block` (ResizeBlockDetail),
  * `select-block` / `pick-block` ({ blockId }), `background-click`.
@@ -96,6 +112,7 @@ export class PcWeekView extends LitElement {
     hourHeight: { type: Number },
     initialHour: { type: Number },
     _span: { state: true },
+    _day: { state: true },
     _now: { state: true },
   };
 
@@ -115,6 +132,8 @@ export class PcWeekView extends LitElement {
   declare initialHour: number;
   /** The times being dragged out: the new block's, or those of the block being resized. */
   declare _span: CreateBlockDetail | null;
+  /** The one day shown, or null for the whole week. */
+  declare _day: number | null;
   declare _now: WallClock;
 
   private drag: Drag | null = null;
@@ -123,6 +142,8 @@ export class PcWeekView extends LitElement {
   private nowTimer = 0;
   private scrolledInitially = false;
   private suppressClickUntil = 0;
+  /** A touchpad swipe in progress: how far it has gone, and whether it changed the day yet. */
+  private swipe = { distance: 0, done: false, timer: 0 };
 
   constructor() {
     super();
@@ -135,6 +156,7 @@ export class PcWeekView extends LitElement {
     this.hourHeight = 48;
     this.initialHour = -1;
     this._span = null;
+    this._day = null;
     this._now = { day: -1, minute: 0 };
   }
 
@@ -147,6 +169,7 @@ export class PcWeekView extends LitElement {
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     window.clearInterval(this.nowTimer);
+    window.clearTimeout(this.swipe.timer);
     this.cancelDrag();
   }
 
@@ -155,8 +178,27 @@ export class PcWeekView extends LitElement {
     return !(changed.size === 1 && changed.has("hass"));
   }
 
+  protected override willUpdate(changed: PropertyValues<this>): void {
+    // Showing one day: when the selected blocks are selected, or moved, where none of them is
+    // on that day, follow them (not when another day is picked while they stay selected).
+    if (this._day === null || !this.config || !this.selectedIds.length) return;
+    const find = (config: Config | undefined) =>
+      this.selectedIds
+        .map((id) => config?.blocks.find((b) => b.id === id && b.tab_id === this.tabId))
+        .filter((b): b is Block => !!b);
+    const selected = find(this.config);
+    const day = this._day;
+    const shown = (b: Block) => segments(b.day, b.start, b.duration).some((seg) => seg.day === day);
+    if (!selected.length || selected.some(shown)) return;
+    const times = (blocks: Block[]) =>
+      blocks.map((b) => `${b.id} ${b.day} ${b.start} ${b.duration}`).join();
+    const moved = changed.has("config") && times(find(changed.get("config"))) !== times(selected);
+    if (changed.has("selectedIds") || moved) this._day = selected[0]!.day;
+  }
+
   protected override firstUpdated(): void {
     this.scroller.addEventListener("touchmove", this.onTouchMove, { passive: false });
+    this.scroller.addEventListener("wheel", this.onWheel, { passive: false });
   }
 
   protected override updated(changed: PropertyValues<this>): void {
@@ -172,6 +214,44 @@ export class PcWeekView extends LitElement {
   private get scroller(): HTMLElement {
     return this.renderRoot.querySelector(".scroller") as HTMLElement;
   }
+
+  // --- One day at a time ----------------------------------------------------------
+
+  /** Show the next (1) or previous (-1) day, in display order and wrapping around the week. */
+  private stepDay(step: number): void {
+    if (this._day === null) return;
+    const days = displayDays(this.config.settings.week_start);
+    this._day = days[(days.indexOf(this._day) + step + 7) % 7]!;
+  }
+
+  /**
+   * Showing one day, Shift+scroll (or scrolling sideways) moves to the next or previous
+   * day: a day per mouse wheel notch, or per touchpad swipe.
+   */
+  private readonly onWheel = (e: WheelEvent): void => {
+    if (this._day === null) return;
+    const sideways = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+    // Browsers report Shift+wheel as either sideways or vertical scrolling.
+    const delta = sideways ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+    if (!delta) return;
+    e.preventDefault();
+    const swipe = this.swipe;
+    window.clearTimeout(swipe.timer);
+    swipe.timer = window.setTimeout(() => {
+      swipe.distance = 0;
+      swipe.done = false;
+    }, SWIPE_END_MS);
+    if (e.deltaMode !== WheelEvent.DOM_DELTA_PIXEL || Math.abs(delta) >= WHEEL_NOTCH_PX) {
+      this.stepDay(Math.sign(delta));
+      return;
+    }
+    if (swipe.done) return;
+    swipe.distance += delta;
+    if (Math.abs(swipe.distance) >= SWIPE_PX) {
+      this.stepDay(Math.sign(swipe.distance));
+      swipe.done = true;
+    }
+  };
 
   // --- Dragging: new blocks and block edges -----------------------------------
 
@@ -592,9 +672,56 @@ export class PcWeekView extends LitElement {
     </div>`;
   }
 
+  private renderHead(day: number): TemplateResult {
+    const today = day === this._now.day ? "today" : "";
+    const long = dayName(day, this.language, "long");
+    if (this._day === null) {
+      return html`<div class="day-head ${today}" role="columnheader">
+        <button
+          class="dname"
+          aria-label=${`${long}. Show only this day`}
+          title=${`Show only ${long}`}
+          @click=${() => (this._day = day)}
+        >
+          ${dayName(day, this.language, "short")}
+        </button>
+      </div>`;
+    }
+    return html`<div class="day-head one-day ${today}" role="columnheader">
+      <span class="side"></span>
+      <button
+        class="icon-btn"
+        aria-label="Previous day"
+        title="Previous day (Shift+scroll)"
+        @click=${() => this.stepDay(-1)}
+      >
+        ${icon(mdiChevronLeft)}
+      </button>
+      <button
+        class="dname"
+        aria-label=${`${long}. Show the whole week`}
+        title="Show the whole week"
+        @click=${() => (this._day = null)}
+      >
+        ${long}
+      </button>
+      <button
+        class="icon-btn"
+        aria-label="Next day"
+        title="Next day (Shift+scroll)"
+        @click=${() => this.stepDay(1)}
+      >
+        ${icon(mdiChevronRight)}
+      </button>
+      <span class="side">
+        <button class="btn text" @click=${() => (this._day = null)}>Week</button>
+      </span>
+    </div>`;
+  }
+
   protected override render() {
     if (!this.config) return nothing;
-    const days = displayDays(this.config.settings.week_start);
+    const days = this._day === null ? displayDays(this.config.settings.week_start) : [this._day];
     // A block whose edge is being dragged is drawn with its new times.
     const resizing = this.drag?.block && this._span ? this.drag.block.id : null;
     const blocks = this.config.blocks
@@ -610,20 +737,23 @@ export class PcWeekView extends LitElement {
       }
     }
     return html`<div
-      class="scroller ${this.picking ? "picking" : ""} ${this.tabInactive() ? "tab-off" : ""} ${resizing ? "resizing" : ""}"
-      style="--hour:${this.hourHeight}px"
+      class="scroller ${this.picking ? "picking" : ""} ${this.tabInactive() ? "tab-off" : ""} ${resizing ? "resizing" : ""} ${this._day === null ? "" : "one-day"}"
+      style="--hour:${this.hourHeight}px;--days:${days.length}"
       @pointermove=${this.onPointerMove}
       @pointerup=${this.onPointerUp}
       @pointercancel=${() => this.cancelDrag()}
     >
-      <div class="grid" role="grid" aria-label="Week schedule">
+      <div
+        class="grid"
+        role="grid"
+        aria-label=${
+          this._day === null
+            ? "Week schedule"
+            : `${dayName(this._day, this.language, "long")} schedule`
+        }
+      >
         <div class="corner"></div>
-        ${days.map(
-          (d) =>
-            html`<div class="day-head ${d === this._now.day ? "today" : ""}" role="columnheader">
-              <span class="dname">${dayName(d, this.language, "short")}</span>
-            </div>`,
-        )}
+        ${days.map((d) => this.renderHead(d))}
         <div class="gutter" aria-hidden="true">
           ${Array.from({ length: 23 }, (_, i) => i + 1).map(
             (h) =>
@@ -651,9 +781,12 @@ export class PcWeekView extends LitElement {
         overscroll-behavior: contain;
         background: var(--pc-card);
       }
+      .scroller.one-day {
+        --strip: max(32px, 6%);
+      }
       .grid {
         display: grid;
-        grid-template-columns: var(--gutter) repeat(7, minmax(var(--min-col), 1fr));
+        grid-template-columns: var(--gutter) repeat(var(--days), minmax(var(--min-col), 1fr));
         grid-template-rows: auto calc(var(--hour) * 24);
         min-width: min-content;
       }
@@ -672,16 +805,38 @@ export class PcWeekView extends LitElement {
       .day-head {
         display: flex;
         justify-content: center;
-        padding: 10px 4px;
+        padding: 8px 4px;
         font-weight: 500;
         color: var(--pc-text-2);
         border-left: 1px solid var(--pc-divider);
       }
+      .dname {
+        padding: 2px 10px;
+        border: none;
+        border-radius: 12px;
+        background: none;
+        font-weight: inherit;
+        cursor: pointer;
+      }
+      .dname:hover {
+        background: color-mix(in srgb, var(--pc-text) 8%, transparent);
+      }
       .day-head.today .dname {
         color: var(--pc-on-primary);
         background: var(--pc-primary);
-        border-radius: 12px;
-        padding: 0 10px;
+      }
+      .day-head.today .dname:hover {
+        background: color-mix(in srgb, var(--pc-primary) 85%, black);
+      }
+      .day-head.one-day {
+        align-items: center;
+        gap: 2px;
+        padding: 2px 4px;
+      }
+      .one-day .side {
+        flex: 1;
+        display: flex;
+        justify-content: flex-end;
       }
       .gutter {
         position: sticky;

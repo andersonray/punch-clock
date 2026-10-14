@@ -472,6 +472,65 @@ describe("punch-clock-panel", () => {
     expect(ed._draft.duration).toBe(120);
   });
 
+  it("shows one day at a time after clicking a day's name", async () => {
+    await mount();
+    const days = () =>
+      [...shadow(weekView()).querySelectorAll<HTMLElement>(".col")].map((c) => c.dataset.day);
+    const press = async (label: string) => {
+      shadow(weekView()).querySelector<HTMLButtonElement>(`[aria-label^="${label}"]`)!.click();
+      await settle(el);
+    };
+    const wheel = async (init: WheelEventInit) => {
+      const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init });
+      // happy-dom's WheelEvent leaves out the modifier keys.
+      Object.defineProperty(event, "shiftKey", { value: !!init.shiftKey });
+      scroller().dispatchEvent(event);
+      await settle(el);
+    };
+
+    await press("Wednesday");
+    expect(days()).toEqual(["2"]);
+    expect(shadow(weekView()).querySelector(".day-head")!.textContent).toContain("Wednesday");
+    expect(blocks().map((b) => b.textContent)).toEqual([expect.stringContaining("Target")]);
+
+    await press("Next day");
+    expect(days()).toEqual(["3"]);
+    await wheel({ deltaY: 100, shiftKey: true }); // a mouse wheel notch
+    expect(days()).toEqual(["4"]);
+    await wheel({ deltaX: -100 }); // the way some browsers report Shift+wheel
+    expect(days()).toEqual(["3"]);
+    for (let i = 0; i < 4; i++) await wheel({ deltaX: 40 }); // one touchpad swipe
+    expect(days()).toEqual(["4"]);
+    await wheel({ deltaY: 100 }); // plain scrolling isn't taken
+    expect(days()).toEqual(["4"]);
+
+    // The week starts on Sunday, so the day before Sunday wraps around to Saturday.
+    await press("Next day"); // Saturday
+    await press("Next day"); // Sunday
+    await press("Previous day");
+    expect(days()).toEqual(["5"]);
+    await press("Next day");
+    await press("Next day");
+    expect(days()).toEqual(["0"]); // Sunday -> Monday
+
+    // It follows the selected block when that moves to another day.
+    await press("Next day");
+    await press("Next day");
+    expect(days()).toEqual(["2"]);
+    blocks()
+      .find((b) => b.textContent?.includes("Target"))!
+      .click();
+    await settle(el);
+    const day = shadow(editor()).querySelector<HTMLSelectElement>("select")!;
+    day.value = "4";
+    day.dispatchEvent(new Event("change"));
+    await settle(el);
+    expect(days()).toEqual(["4"]);
+
+    await press("Friday. Show the whole week");
+    expect(days()).toHaveLength(7);
+  });
+
   it("copies actions and conditions with the eyedropper after confirming", async () => {
     await mount();
     blocks()

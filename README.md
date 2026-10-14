@@ -64,6 +64,9 @@ Open **Punch Clock** in the sidebar.
   move its start or stop time, into the next or previous day's column to cross midnight. The
   change is saved right away, unless the block is open in the editor with unsaved changes: then
   it joins them, and **Save** keeps it. Press Esc during a drag to cancel it.
+- **One day at a time.** Click a day's name above the calendar to show only that day, which
+  leaves more room when blocks overlap. The arrows beside the name, or Shift+scroll, go to the
+  previous and next day. Click the name again, or **Week**, to see the whole week.
 - **Edit a block.** Click it. The editor sets the name, color, day, start and stop times (a stop
   earlier than the start ends the next day), actions and conditions. Click a start or stop time to
   pick it on a clock dial: choose the hour, then the minute (the keyboard icon lets you type it
