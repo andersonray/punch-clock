@@ -16,6 +16,7 @@ import {
   blockLabel,
   countConditions,
   emptyGroup,
+  entityCounts,
   nextColor,
   splitColor,
   splitName,
@@ -87,6 +88,7 @@ export class PunchClockPanel extends LitElement {
     _preview: { state: true },
     _savingTimes: { state: true },
     _resizing: { state: true },
+    _filter: { state: true },
   };
 
   declare hass: HomeAssistant;
@@ -110,6 +112,11 @@ export class PunchClockPanel extends LitElement {
   /** New times of blocks dragged in the calendar, shown until the saved config has them. */
   declare _savingTimes: Record<string, BlockTimes>;
   declare _resizing: boolean;
+  /**
+   * Entities chosen in the filter row: the calendar shows only blocks acting on them. Kept
+   * across tabs; a tab whose blocks don't act on any of them shows everything.
+   */
+  declare _filter: string[];
 
   private readonly api = new PunchClockApi(() => this.hass);
   private unsubscribe: (() => Promise<void>) | null = null;
@@ -122,6 +129,7 @@ export class PunchClockPanel extends LitElement {
     result: Config;
   } | null = null;
   private selectionCache: string[] = [];
+  private filterCache: string[] = [];
   private unitsCache: TemperatureUnits = { schedule: "°C", ha: "°C" };
 
   constructor() {
@@ -142,6 +150,7 @@ export class PunchClockPanel extends LitElement {
     this._preview = null;
     this._savingTimes = {};
     this._resizing = false;
+    this._filter = [];
   }
 
   override connectedCallback(): void {
@@ -237,6 +246,13 @@ export class PunchClockPanel extends LitElement {
   }
 
   /** The schedule's temperature unit and Home Assistant's (a stable object for Lit). */
+  /** The chosen entities that the active tab's blocks act on, as a stable array for Lit. */
+  private activeFilter(counts: Map<string, number>): string[] {
+    const filter = this._filter.filter((entityId) => counts.has(entityId));
+    if (filter.join() !== this.filterCache.join()) this.filterCache = filter;
+    return this.filterCache;
+  }
+
   private get units(): TemperatureUnits {
     const schedule = this._config?.settings.temperature_unit ?? "°C";
     const ha = this._info?.temperature_unit ?? this.hass.config.unit_system?.temperature ?? "°C";
@@ -758,6 +774,9 @@ export class PunchClockPanel extends LitElement {
   }
 
   private renderMain(config: Config, selected: Block | undefined) {
+    const view = this.viewConfig(config);
+    const counts = entityCounts(view.blocks.filter((b) => b.tab_id === this._activeTabId));
+    const filter = this.activeFilter(counts);
     return html`
       <pc-tab-bar
         .tabs=${config.tabs}
@@ -770,13 +789,21 @@ export class PunchClockPanel extends LitElement {
         @reorder=${(e: CustomEvent<{ order: string[] }>) => void this.run(() => this.api.reorderTabs(e.detail.order))}
       ></pc-tab-bar>
       ${this.renderBanner()}
+      <pc-entity-filter
+        .hass=${this.hass}
+        .counts=${counts}
+        .selected=${filter}
+        @filter-changed=${(e: CustomEvent<{ selected: string[] }>) =>
+          (this._filter = e.detail.selected)}
+      ></pc-entity-filter>
       <div class="main">
         <pc-week-view
           .hass=${this.hass}
-          .config=${this.viewConfig(config)}
+          .config=${view}
           .tabId=${this._activeTabId}
           .status=${this._status}
           .selectedIds=${this.selectedIds}
+          .filter=${filter}
           .picking=${this._picking}
           .use24h=${this.use24h}
           .language=${this.language}

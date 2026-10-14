@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   actionProblems,
   behaviorKey,
+  blockEntities,
   blockGroup,
   cloneGroup,
   conditionProblems,
   copyBehavior,
   countConditions,
   emptyGroup,
+  entityCounts,
   feedbackEntities,
   findConflicts,
   newCondition,
@@ -106,6 +108,24 @@ describe("actions", () => {
     } as Config;
     expect(tabEntities(config, "t1")).toEqual(["climate.house", "light.porch"]);
     expect(tabEntities(config, "t2")).toEqual(["light.other"]);
+  });
+
+  it("counts the blocks acting on each entity, including service call targets", () => {
+    const service = {
+      id: "a-s",
+      type: "service" as const,
+      service: "light.turn_on",
+      target: { entity_id: ["light.porch", "climate.house"] },
+      data: {},
+    };
+    const a = block("a"); // sets climate.house
+    const b = block("b", { actions: [service] });
+    const c = block("c", { actions: [] });
+    expect([...blockEntities(b)]).toEqual(["light.porch", "climate.house"]);
+    expect([...entityCounts([a, b, c])]).toEqual([
+      ["climate.house", 2],
+      ["light.porch", 1],
+    ]);
   });
 
   it("copies actions and conditions with fresh IDs", () => {

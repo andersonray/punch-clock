@@ -272,6 +272,30 @@ export function controlledEntities(config: Config): Set<string> {
   return out;
 }
 
+/** Entities a block acts on: the ones its entity actions set and its service calls target. */
+export function blockEntities(block: Block): Set<string> {
+  const out = new Set<string>();
+  for (const a of block.actions) {
+    if (a.type === "entity") {
+      if (a.entity_id) out.add(a.entity_id);
+    } else {
+      for (const entityId of a.target.entity_id ?? []) out.add(entityId);
+    }
+  }
+  return out;
+}
+
+/** How many of the blocks act on each entity (see blockEntities). */
+export function entityCounts(blocks: Block[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const block of blocks) {
+    for (const entityId of blockEntities(block)) {
+      counts.set(entityId, (counts.get(entityId) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
 /** Entities that the entity actions of a tab's blocks set, in the order they first appear. */
 export function tabEntities(config: Config, tabId: string): string[] {
   const out = new Set<string>();

@@ -17,7 +17,13 @@ import {
   type WallClock,
 } from "../logic/time";
 import { layoutDay, type Placed } from "../logic/layout";
-import { blockLabel, countConditions, findConflicts, type Conflict } from "../logic/model";
+import {
+  blockEntities,
+  blockLabel,
+  countConditions,
+  findConflicts,
+  type Conflict,
+} from "../logic/model";
 import { controls } from "../styles";
 import {
   icon,
@@ -95,6 +101,9 @@ const BLOCK_GAP_PX = 2;
  * Clicking a day's name shows only that day, with buttons (and Shift+scroll) for the
  * previous and next day; clicking the name again shows the whole week.
  *
+ * With a `filter`, only the blocks that act on those entities (and the selected group) are
+ * drawn, and they get the whole width; conflict warnings still count every block.
+ *
  * Events: `create-block` (CreateBlockDetail), `resize-block` (ResizeBlockDetail),
  * `select-block` / `pick-block` ({ blockId }), `background-click`.
  */
@@ -105,6 +114,7 @@ export class PcWeekView extends LitElement {
     tabId: {},
     status: { attribute: false },
     selectedIds: { attribute: false },
+    filter: { attribute: false },
     picking: { type: Boolean },
     use24h: { type: Boolean },
     language: {},
@@ -122,6 +132,8 @@ export class PcWeekView extends LitElement {
   declare status: Status | null;
   /** The selected block and the rest of its group. */
   declare selectedIds: string[];
+  /** Show only blocks that act on one of these entities (and the selected ones); all if empty. */
+  declare filter: readonly string[];
   /** Eyedropper mode: clicking a block picks it instead of selecting it. */
   declare picking: boolean;
   declare use24h: boolean;
@@ -149,6 +161,7 @@ export class PcWeekView extends LitElement {
     super();
     this.status = null;
     this.selectedIds = [];
+    this.filter = [];
     this.picking = false;
     this.use24h = false;
     this.language = "en";
@@ -728,8 +741,13 @@ export class PcWeekView extends LitElement {
       .filter((b) => b.tab_id === this.tabId)
       .map((b) => (b.id === resizing ? { ...b, ...this._span } : b));
     const conflicts = findConflicts(blocks);
+    const filter = new Set(this.filter);
+    const shown = (block: Block) =>
+      !filter.size ||
+      this.selectedIds.includes(block.id) ||
+      [...blockEntities(block)].some((entityId) => filter.has(entityId));
     const byDay = new Map<number, { block: Block; seg: Segment }[]>();
-    for (const block of blocks) {
+    for (const block of blocks.filter(shown)) {
       for (const seg of segments(block.day, block.start, block.duration)) {
         const list = byDay.get(seg.day) ?? [];
         list.push({ block, seg });

@@ -9,6 +9,7 @@ import { PcConditionEditor } from "./components/pc-condition-editor";
 import { PcConfirmDialog } from "./components/pc-confirm-dialog";
 import { PcDialog } from "./components/pc-dialog";
 import { PcDuplicateDialog } from "./components/pc-duplicate-dialog";
+import { PcEntityFilter } from "./components/pc-entity-filter";
 import { PcEntityPicker } from "./components/pc-entity-picker";
 import { PcSettingsDialog } from "./components/pc-settings-dialog";
 import { PcTabBar } from "./components/pc-tab-bar";
@@ -27,6 +28,7 @@ const elements: [string, CustomElementConstructor][] = [
   ["pc-action-editor", PcActionEditor],
   ["pc-condition-editor", PcConditionEditor],
   ["pc-week-view", PcWeekView],
+  ["pc-entity-filter", PcEntityFilter],
   ["pc-tab-bar", PcTabBar],
   ["pc-block-editor", PcBlockEditor],
   ["pc-duplicate-dialog", PcDuplicateDialog],
@@ -50,5 +52,6 @@ declare global {
     "pc-action-editor": PcActionEditor;
     "pc-entity-picker": PcEntityPicker;
     "pc-tab-dialog": PcTabDialog;
+    "pc-entity-filter": PcEntityFilter;
   }
 }

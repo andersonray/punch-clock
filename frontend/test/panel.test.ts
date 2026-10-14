@@ -1028,6 +1028,70 @@ describe("punch-clock-panel", () => {
     );
   });
 
+  it("filters the calendar by the entities the tab's blocks act on", async () => {
+    await mount((config) => {
+      const target = config.blocks.find((b) => b.id === "b_target")!;
+      target.actions = [
+        { id: "a_g", type: "entity", entity_id: "input_boolean.guests", settings: { state: "on" } },
+      ];
+      const night = config.blocks.find((b) => b.id === "b_night")!;
+      night.actions = [
+        {
+          id: "a_s",
+          type: "service",
+          service: "climate.set_temperature",
+          target: { entity_id: ["climate.house"] },
+          data: {},
+        },
+      ];
+    });
+    const filter = () => shadow(shadow(el).querySelector("pc-entity-filter"));
+    const chips = () =>
+      [...filter().querySelectorAll<HTMLButtonElement>(".chip-btn")].map((c) => {
+        const count = c.querySelector(".count")!.textContent;
+        const name = c.textContent!.replace(count!, "").trim();
+        return `${name} ${count}${c.getAttribute("aria-pressed") === "true" ? " (on)" : ""}`;
+      });
+    const toggle = async (name: string) => {
+      [...filter().querySelectorAll<HTMLButtonElement>(".chip-btn")]
+        .find((c) => c.textContent?.includes(name))!
+        .click();
+      await settle(el);
+    };
+    const shown = () =>
+      [...new Set(blocks().map((b) => b.querySelector(".name")!.textContent))].sort();
+
+    // House: Morning sets it and Night's service call targets it.
+    expect(chips()).toEqual(["Guests 1", "House 2"]);
+    expect(shown()).toEqual(["Morning", "Night", "Target"]);
+
+    await toggle("House");
+    expect(chips()).toEqual(["Guests 1", "House 2 (on)"]);
+    expect(shown()).toEqual(["Morning", "Night"]);
+    await toggle("Guests");
+    expect(shown()).toEqual(["Morning", "Night", "Target"]);
+    await toggle("House");
+    expect(shown()).toEqual(["Target"]);
+
+    // The block being edited stays in view.
+    await toggle("Guests");
+    await toggle("House");
+    blocks()
+      .find((b) => b.textContent?.includes("Morning"))!
+      .click();
+    await settle(el);
+    await toggle("Guests");
+    await toggle("House");
+    expect(shown()).toEqual(["Morning", "Target"]);
+
+    [...filter().querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent?.trim() === "Show all")!
+      .click();
+    await settle(el);
+    expect(chips()).toEqual(["Guests 1", "House 2"]);
+    expect(shown()).toEqual(["Morning", "Night", "Target"]);
+  });
+
   it("duplicates a block to several days", async () => {
     await mount();
     blocks()

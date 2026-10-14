@@ -64,6 +64,10 @@ Open **Punch Clock** in the sidebar.
   move its start or stop time, into the next or previous day's column to cross midnight. The
   change is saved right away, unless the block is open in the editor with unsaved changes: then
   it joins them, and **Save** keeps it. Press Esc during a drag to cancel it.
+- **Filter by entity.** The row above the calendar has a chip for each entity the tab's blocks
+  set (or target with a service call), with how many blocks do. Pick one or more to show only
+  the blocks that act on them; **Show all** clears the filter. The block you're editing always
+  stays visible.
 - **One day at a time.** Click a day's name above the calendar to show only that day, which
   leaves more room when blocks overlap. The arrows beside the name, or Shift+scroll, go to the
   previous and next day. Click the name again, or **Week**, to see the whole week.
