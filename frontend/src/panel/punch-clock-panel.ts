@@ -17,6 +17,7 @@ import {
   countConditions,
   emptyGroup,
   nextColor,
+  splitColor,
   splitName,
 } from "../logic/model";
 import { MINUTES_PER_DAY, dayName, formatRange, nowIn, uses24h } from "../logic/time";
@@ -472,8 +473,8 @@ export class PunchClockPanel extends LitElement {
   }
 
   /**
-   * Split a block off from its group by numbering its name, then edit it on its own.
-   * Unsaved changes to the group are saved or discarded first.
+   * Split a block off from its group by numbering its name and giving it a new color, then
+   * edit it on its own. Unsaved changes to the group are saved or discarded first.
    */
   private async splitBlock(blockId: string): Promise<void> {
     this._picking = false;
@@ -483,7 +484,8 @@ export class PunchClockPanel extends LitElement {
     if (!config || !block) return;
     if (blockGroup(config.blocks, block).length > 1) {
       const name = splitName(config.blocks, block.tab_id, block.name);
-      if (!(await this.run(() => this.api.updateBlock(block.id, { name })))) return;
+      const color = splitColor(config.blocks, block.tab_id, block.color);
+      if (!(await this.run(() => this.api.updateBlock(block.id, { name, color })))) return;
     }
     this._selectedId = block.id;
     this._preview = null;

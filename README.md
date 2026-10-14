@@ -79,7 +79,7 @@ Open **Punch Clock** in the sidebar.
   the editor lists the day, start and stop of each block. Changes to the name, color, actions
   and conditions apply to every block of the group when you save. To take a block out of its
   group, click the split icon at the start of its row: it gets the name with a number added
-  ("Morning 1") and opens on its own. If you save a block with the name and color of another
+  ("Morning 1") and a new color, and opens on its own. If you save a block with the name and color of another
   group, it asks whether to replace the block's actions and conditions with the group's and join
   it; cancel to pick another name or color instead. Deleting a block of a group asks whether to
   delete just that one or all of them.

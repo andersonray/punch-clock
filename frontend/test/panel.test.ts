@@ -5,6 +5,7 @@ import type { Block, BlockUpdate, Config, HomeAssistant, Status } from "../src/t
 import type { PunchClockPanel } from "../src/panel/punch-clock-panel";
 import type { PcBlockEditor } from "../src/components/pc-block-editor";
 import type { PcConfirmDialog } from "../src/components/pc-confirm-dialog";
+import { PALETTE } from "../src/logic/model";
 
 declare const __PC_VERSION__: string;
 
@@ -837,7 +838,7 @@ describe("punch-clock-panel", () => {
     expect(ed._whens).toHaveLength(4);
   });
 
-  it("splits a block off from its group with a numbered name", async () => {
+  it("splits a block off from its group with a numbered name and a new color", async () => {
     await mount(addMorningGroup);
     await clickBlock("Morning");
     whenRows(editor()!)[1]!.querySelector<HTMLButtonElement>('[aria-label^="Split"]')!.click();
@@ -848,6 +849,9 @@ describe("punch-clock-panel", () => {
     });
     const ed = editor()!;
     expect(ed._draft).toMatchObject({ id: "b_wed", name: "Morning 1" });
+    // A palette color that no other block in the tab uses.
+    expect(PALETTE).toContain(ed._draft.color);
+    expect(["#039be5", "#8e24aa"]).not.toContain(ed._draft.color);
     expect(whenRows(ed)).toHaveLength(1);
     expect(selected()).toHaveLength(1);
 
@@ -872,7 +876,8 @@ describe("punch-clock-panel", () => {
       block_id: "b_fri",
       changes: { name: "Morning 1" },
     });
-    expect(editor()!._draft).toMatchObject({ id: "b_fri", color: "#33b679" });
+    expect(editor()!._draft).toMatchObject({ id: "b_fri", name: "Morning 1" });
+    expect(["#33b679", "#039be5", "#8e24aa"]).not.toContain(editor()!._draft.color);
     expect(whenRows(editor()!)).toHaveLength(1);
   });
 

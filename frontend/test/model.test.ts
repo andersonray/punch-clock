@@ -11,7 +11,9 @@ import {
   feedbackEntities,
   findConflicts,
   newCondition,
+  PALETTE,
   sortWhens,
+  splitColor,
   splitName,
   valueSuggestions,
   whenOf,
@@ -175,6 +177,20 @@ describe("groups", () => {
     ];
     expect(splitName(more, "t1", "Morning")).toBe("Morning 2");
     expect(splitName(more, "t2", "Morning")).toBe("Morning 1");
+  });
+
+  it("gives a split-off block a palette color that the tab doesn't use yet", () => {
+    const used = PALETTE.slice(0, -1).map((color, i) => block(`b${i}`, { color }));
+    expect(splitColor(used, "t1", "#039be5", () => 0.99)).toBe(PALETTE.at(-1));
+    // With every color in use, any color but the group's.
+    const all = [...used, block("last", { color: PALETTE.at(-1)! })];
+    const picked = PALETTE.map((_, i) =>
+      splitColor(all, "t1", "#039be5", () => i / PALETTE.length),
+    );
+    expect(picked).not.toContain("#039be5");
+    expect(new Set(picked).size).toBe(PALETTE.length - 1);
+    // Other tabs don't count.
+    expect(splitColor(used, "t2", "#039be5", () => 0)).toBe(PALETTE[0]);
   });
 
   it("compares what blocks do without their IDs", () => {

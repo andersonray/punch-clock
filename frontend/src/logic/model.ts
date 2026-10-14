@@ -177,6 +177,22 @@ export function splitName(blocks: Block[], tabId: string, name: string): string 
   }
 }
 
+/**
+ * A color for a block split off from its group: a random palette color that no block in
+ * the tab uses, or else any palette color other than the group's.
+ */
+export function splitColor(
+  blocks: Block[],
+  tabId: string,
+  color: string,
+  random: () => number = Math.random,
+): string {
+  const used = new Set(blocks.filter((b) => b.tab_id === tabId).map((b) => b.color.toLowerCase()));
+  const unused = PALETTE.filter((c) => !used.has(c));
+  const choices = unused.length ? unused : PALETTE.filter((c) => c !== color.toLowerCase());
+  return choices[Math.floor(random() * choices.length)]!;
+}
+
 const withoutIds = (group: Group): unknown => ({
   ...group,
   id: undefined,
