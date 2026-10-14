@@ -19,7 +19,8 @@ a calendar.
 - **Multiple week tabs.** Each tab is a separate week schedule with its own conditions, such as
   "Workweek", "Vacation" or "Guests". Every tab whose conditions are true runs at the same time,
   and the leftmost tab wins when two tabs conflict.
-- **Default values.** Each tab can have per-entity values to fall back to when no block is active.
+- **Default values.** Each tab can have per-entity values to fall back to when no running block,
+  in any tab, is setting them.
 - **Block groups.** Blocks in a tab with the same name and color are a group: they share their
   actions and conditions, and each has its own day and times. Edit any of them to change them all.
 - **Copying blocks.** *Duplicate* copies a block to other days or tabs. The *eyedropper* applies

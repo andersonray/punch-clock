@@ -194,8 +194,9 @@ export class PcTabDialog extends LitElement {
         <section>
           <h3>Default values</h3>
           <p class="muted">
-            What an entity goes back to when none of this tab's blocks is setting it. Entities
-            without a default keep whatever value they have.
+            What an entity goes back to while this tab is running and no running block, in this tab
+            or any other, is setting it. If several running tabs have a default for the same value,
+            the leftmost tab's wins. Entities without a default keep whatever value they have.
           </p>
           ${d.defaults.map(
             (action, i) =>

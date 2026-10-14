@@ -20,6 +20,8 @@
 
 - Changing the temperature unit no longer re-sends the temperatures of running blocks, which
   undid manual changes.
+- The tab dialog's description of default values now says that a running block in any tab
+  overrides them, not only the tab's own blocks.
 
 ## 0.1.0 (2026-10-13)
 
