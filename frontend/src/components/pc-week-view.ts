@@ -83,6 +83,9 @@ const RESIZE_TOLERANCE_PX = 3;
 const EDGE_SCROLL_PX = 48;
 /** A wheel event at least this big (in pixels) is a mouse wheel notch, not a touchpad. */
 const WHEEL_NOTCH_PX = 50;
+/** A selected block with less than this much (or less than all of it) in view gets scrolled to. */
+const REVEAL_PX = 24;
+const REVEAL_MARGIN_PX = 16;
 /** How far a touchpad swipe goes before it changes the day (once per swipe). */
 const SWIPE_PX = 120;
 /** A pause this long between wheel events ends a touchpad swipe. */
@@ -101,6 +104,10 @@ const BLOCK_GAP_PX = 2;
  * Clicking a day's name shows only that day, with buttons (and Shift+scroll) for the
  * previous and next day; clicking the name again shows the whole week.
  *
+ * The selected block (`currentId`) is outlined more strongly than the rest of its group
+ * (`selectedIds`). When it changes, the calendar scrolls to it, and in the one-day view it
+ * switches to its day.
+ *
  * With a `filter`, only the blocks that act on those entities (and the selected group) are
  * drawn, and they get the whole width; conflict warnings still count every block.
  *
@@ -114,6 +121,7 @@ export class PcWeekView extends LitElement {
     tabId: {},
     status: { attribute: false },
     selectedIds: { attribute: false },
+    currentId: {},
     filter: { attribute: false },
     picking: { type: Boolean },
     use24h: { type: Boolean },
@@ -132,6 +140,8 @@ export class PcWeekView extends LitElement {
   declare status: Status | null;
   /** The selected block and the rest of its group. */
   declare selectedIds: string[];
+  /** The selected block itself, highlighted more than the rest of its group. */
+  declare currentId: string | null;
   /** Show only blocks that act on one of these entities (and the selected ones); all if empty. */
   declare filter: readonly string[];
   /** Eyedropper mode: clicking a block picks it instead of selecting it. */
@@ -154,6 +164,8 @@ export class PcWeekView extends LitElement {
   private nowTimer = 0;
   private scrolledInitially = false;
   private suppressClickUntil = 0;
+  /** Scroll the current block into view once it's drawn (it was just selected or followed). */
+  private revealPending = false;
   /** A touchpad swipe in progress: how far it has gone, and whether it changed the day yet. */
   private swipe = { distance: 0, done: false, timer: 0 };
 
@@ -161,6 +173,7 @@ export class PcWeekView extends LitElement {
     super();
     this.status = null;
     this.selectedIds = [];
+    this.currentId = null;
     this.filter = [];
     this.picking = false;
     this.use24h = false;
@@ -192,21 +205,27 @@ export class PcWeekView extends LitElement {
   }
 
   protected override willUpdate(changed: PropertyValues<this>): void {
-    // Showing one day: when the selected blocks are selected, or moved, where none of them is
-    // on that day, follow them (not when another day is picked while they stay selected).
-    if (this._day === null || !this.config || !this.selectedIds.length) return;
+    if (changed.has("currentId")) this.revealPending = !!this.currentId;
+    // Showing one day: when the current block is selected, or moved, on another day, follow
+    // it there (not when another day is picked while it stays selected).
+    if (this._day === null || !this.config || !this.currentId) return;
     const find = (config: Config | undefined) =>
-      this.selectedIds
-        .map((id) => config?.blocks.find((b) => b.id === id && b.tab_id === this.tabId))
-        .filter((b): b is Block => !!b);
-    const selected = find(this.config);
+      config?.blocks.find((b) => b.id === this.currentId && b.tab_id === this.tabId);
+    const block = find(this.config);
     const day = this._day;
-    const shown = (b: Block) => segments(b.day, b.start, b.duration).some((seg) => seg.day === day);
-    if (!selected.length || selected.some(shown)) return;
-    const times = (blocks: Block[]) =>
-      blocks.map((b) => `${b.id} ${b.day} ${b.start} ${b.duration}`).join();
-    const moved = changed.has("config") && times(find(changed.get("config"))) !== times(selected);
-    if (changed.has("selectedIds") || moved) this._day = selected[0]!.day;
+    if (!block || segments(block.day, block.start, block.duration).some((s) => s.day === day)) {
+      return;
+    }
+    const before = changed.has("config") ? find(changed.get("config")) : block;
+    const moved =
+      !before ||
+      before.day !== block.day ||
+      before.start !== block.start ||
+      before.duration !== block.duration;
+    if (changed.has("currentId") || moved) {
+      this._day = block.day;
+      this.revealPending = true;
+    }
   }
 
   protected override firstUpdated(): void {
@@ -222,6 +241,42 @@ export class PcWeekView extends LitElement {
         this.initialHour >= 0 ? this.initialHour : Math.max(0, this._now.minute / 60 - 1);
       this.scroller.scrollTop = hour * this.hourHeight;
     }
+    if (this.revealPending) this.revealCurrent();
+  }
+
+  /**
+   * Scroll so the current block can be seen, unless enough of it already can (so clicking a
+   * block doesn't move it). A block that isn't in the config yet, such as one just created,
+   * is waited for.
+   */
+  private revealCurrent(): void {
+    const id = this.currentId;
+    const elements = [...this.renderRoot.querySelectorAll<HTMLElement>(".block")].filter(
+      (b) => b.dataset.id === id,
+    );
+    const el = elements.find((b) => !b.classList.contains("continuation")) ?? elements[0];
+    if (!el) {
+      // Not drawn: on another day, filtered out, or not saved yet.
+      if (this.config?.blocks.some((b) => b.id === id)) this.revealPending = false;
+      return;
+    }
+    this.revealPending = false;
+    const scroller = this.scroller;
+    const view = scroller.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    const head =
+      (this.renderRoot.querySelector(".day-head") as HTMLElement | null)?.offsetHeight ?? 0;
+    const gutter =
+      (this.renderRoot.querySelector(".gutter") as HTMLElement | null)?.offsetWidth ?? 0;
+    // How far to scroll so [start, end] shows within [from, to], or 0 if enough already does.
+    const by = (start: number, end: number, from: number, to: number): number => {
+      if (Math.min(end, to) - Math.max(start, from) >= Math.min(end - start, REVEAL_PX)) return 0;
+      if (start < from) return start - from - REVEAL_MARGIN_PX;
+      return Math.min(end - to + REVEAL_MARGIN_PX, start - from - REVEAL_MARGIN_PX);
+    };
+    const top = by(box.top, box.bottom, view.top + head, view.top + scroller.clientHeight);
+    const left = by(box.left, box.right, view.left + gutter, view.left + scroller.clientWidth);
+    if (top || left) scroller.scrollBy({ top, left, behavior: "smooth" });
   }
 
   private get scroller(): HTMLElement {
@@ -561,6 +616,7 @@ export class PcWeekView extends LitElement {
     const classes = [
       "block",
       this.selectedIds.includes(block.id) ? "selected" : "",
+      block.id === this.currentId ? "current" : "",
       block.id === this.drag?.block?.id ? "resizing" : "",
       state?.active ? "active" : "",
       unmet ? "unmet" : "",
@@ -581,6 +637,7 @@ export class PcWeekView extends LitElement {
     ].filter(Boolean);
     return html`<button
       class=${classes}
+      data-id=${block.id}
       style="top:${top}px;height:${height - BLOCK_GAP_PX}px;--left:${placed.left};--width:${placed.width};--block-color:${block.color}"
       aria-label=${`${label}, ${day} ${range}${notes.length ? `, ${notes.join(", ")}` : ""}`}
       title=${`${label}\n${day} ${range}${notes.length ? `\n${notes.join("\n")}` : ""}`}
@@ -954,6 +1011,13 @@ export class PcWeekView extends LitElement {
         outline: 2px solid var(--block-color);
         outline-offset: 1px;
         z-index: 2;
+      }
+      /* The selected block itself is drawn thicker; the rest of its group is dashed. */
+      .block.current {
+        outline-width: 3px;
+      }
+      .block.selected:not(.current) {
+        outline-style: dashed;
       }
       .block.continuation {
         border-top-left-radius: 0;

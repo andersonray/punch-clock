@@ -15,6 +15,9 @@
   asking.
 - `punch_clock/blocks/update_many` and `punch_clock/blocks/delete_many` WebSocket commands, which
   change several blocks in one revision.
+- Clicking the background of a block's row in a group's When list selects that block: the
+  row and the block in the calendar are highlighted, the calendar scrolls to it, and the
+  one-day view switches to its day.
 - **Duplicate tab** in a tab's ⋮ menu copies the tab and all its blocks into a new tab right
   after it. The copy starts turned off, so it changes nothing until you turn it on.
 - `punch_clock/tabs/duplicate` WebSocket command, which does that in one revision.

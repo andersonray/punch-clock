@@ -222,7 +222,9 @@ const blocks = () => [...shadow(weekView()).querySelectorAll<HTMLButtonElement>(
 const editor = () => shadow(el).querySelector("pc-block-editor") as PcBlockEditor | null;
 
 const timeInputs = (ed: Element) => [...shadow(ed).querySelectorAll("pc-time-input")];
-const whenRows = (ed: Element) => [...shadow(ed).querySelectorAll(".when-row:not(.head)")];
+const whenRows = (ed: Element) => [
+  ...shadow(ed).querySelectorAll<HTMLElement>(".when-row:not(.head)"),
+];
 const selected = () => blocks().filter((b) => b.classList.contains("selected"));
 /** Answer the panel's confirmation dialog (or the one in `host`, such as the editor). */
 const confirmChoice = async (label: string, host: Element = el) => {
@@ -1402,6 +1404,74 @@ describe("punch-clock-panel", () => {
     expect(lastCall("blocks/delete_many")).toMatchObject({ block_ids: ["b_morning", "b_fri"] });
     expect(editor()).toBeNull();
     expect(blocks().some((b) => b.textContent?.includes("Morning"))).toBe(true); // the purple one
+  });
+
+  it("selects a block of the group by clicking its row", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Morning"); // Monday
+    const ed = editor()!;
+    shadow(ed).querySelector<HTMLButtonElement>('.swatch[aria-label="#33b679"]')!.click();
+    await settle(el);
+    const block = (id: string) =>
+      blocks().find((b) => b.dataset.id === id && !b.classList.contains("continuation"))!;
+    expect(block("b_morning").classList.contains("current")).toBe(true);
+
+    // The row's fields are for editing, not selecting.
+    whenRows(ed)[2]!.querySelector("select")!.click();
+    await settle(el);
+    expect(editor()!._draft.id).toBe("b_morning");
+
+    whenRows(ed)[2]!.click(); // Friday
+    await settle(el);
+    expect(editor()!._draft).toMatchObject({ id: "b_fri", color: "#33b679" });
+    expect(editor()!.dirty).toBe(true);
+    expect(whenRows(ed).map((r) => r.classList.contains("current"))).toEqual([false, false, true]);
+    expect(block("b_fri").classList.contains("current")).toBe(true);
+    expect(block("b_morning").classList.contains("current")).toBe(false);
+    expect(selected()).toHaveLength(3); // still the whole group
+  });
+
+  it("shows the day of a block selected from its row, and scrolls to it", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Morning"); // Monday
+    const scroller = shadow(weekView()).querySelector<HTMLElement>(".scroller")!;
+    const scrolls: ScrollToOptions[] = [];
+    scroller.scrollBy = ((options: ScrollToOptions) =>
+      scrolls.push(options)) as typeof scroller.scrollBy;
+    scroller.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 800, bottom: 400, width: 800, height: 400 }) as DOMRect;
+    Object.defineProperty(scroller, "clientHeight", { value: 400 });
+    Object.defineProperty(scroller, "clientWidth", { value: 800 });
+    const place = (id: string, top: number) => {
+      const el = blocks().find((b) => b.dataset.id === id)!;
+      el.getBoundingClientRect = () =>
+        ({ left: 300, right: 400, top, bottom: top + 96, width: 100, height: 96 }) as DOMRect;
+    };
+
+    // Wednesday's block is below the visible hours: scroll down to it.
+    place("b_wed", 900);
+    whenRows(editor()!)[1]!.click();
+    await settle(el);
+    expect(scrolls).toEqual([{ top: 900 + 96 - 400 + 16, left: 0, behavior: "smooth" }]);
+
+    // One already in view stays put.
+    place("b_fri", 100);
+    whenRows(editor()!)[2]!.click();
+    await settle(el);
+    expect(scrolls).toHaveLength(1);
+
+    // Showing one day, selecting a block on another day shows that day.
+    shadow(weekView()).querySelector<HTMLButtonElement>('[aria-label^="Monday"]')!.click();
+    await settle(el);
+    whenRows(editor()!)[0]!.click(); // Monday
+    await settle(el);
+    const days = () =>
+      [...shadow(weekView()).querySelectorAll<HTMLElement>(".col")].map((c) => c.dataset.day);
+    expect(days()).toEqual(["0"]);
+    whenRows(editor()!)[2]!.click(); // Friday
+    await settle(el);
+    expect(days()).toEqual(["4"]);
+    expect(blocks().map((b) => b.dataset.id)).toEqual(["b_night", "b_fri"]); // Night is Friday too
   });
 
   it("deletes one block of a group from its row, after asking", async () => {

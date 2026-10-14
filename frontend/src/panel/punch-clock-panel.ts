@@ -803,6 +803,7 @@ export class PunchClockPanel extends LitElement {
           .tabId=${this._activeTabId}
           .status=${this._status}
           .selectedIds=${this.selectedIds}
+          .currentId=${this._selectedId}
           .filter=${filter}
           .picking=${this._picking}
           .use24h=${this.use24h}
@@ -855,6 +856,8 @@ export class PunchClockPanel extends LitElement {
                       void this.splitBlock(e.detail.blockId)}
                     @delete-when=${(e: CustomEvent<{ blockId: string }>) =>
                       void this.deleteWhen(e.detail.blockId)}
+                    @select-when=${(e: CustomEvent<{ blockId: string }>) =>
+                      void this.selectBlock(e.detail.blockId)}
                     @duplicate-block=${(e: CustomEvent<{ block: Block }>) => (this._duplicateSource = e.detail.block)}
                     @start-eyedropper=${() => (this._picking = !this._picking)}
                     @preview-changed=${(e: CustomEvent<BlockPreview>) => (this._preview = e.detail)}

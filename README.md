@@ -92,7 +92,9 @@ Open **Punch Clock** in the sidebar.
   same thing at different times on different days. Clicking one highlights the whole group, and
   the editor lists the day, start and stop of each block. **Add a time** adds another block to
   the group, with the selected row's start and stop on the next day (or the next one without a
-  time starting then); it's created when you save.
+  time starting then); it's created when you save. Click the background of a row to select
+  that block: its row and its block in the calendar are highlighted (the rest of the group is
+  outlined with dashes), the calendar scrolls to it, and the one-day view switches to its day.
   Changes to the name, color, actions and conditions apply to every block of the group when you
   save. To take a block out of its
   group, click the split icon at the start of its row: it gets the name with a number added

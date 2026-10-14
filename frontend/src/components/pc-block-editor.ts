@@ -80,8 +80,9 @@ export interface BlockPreview {
  * writes every block of the group at once, and creates the times added with "Add a time".
  *
  * Events: `close-editor`, `delete-block` ({ blockIds }: the group), `delete-when`
- * ({ blockId }: one block of the group), `duplicate-block` ({ block }), `split-block`
- * ({ blockId }), `start-eyedropper`, `preview-changed`
+ * ({ blockId }: one block of the group), `select-when` ({ blockId }: a row's background was
+ * clicked), `duplicate-block` ({ block }), `split-block` ({ blockId }), `start-eyedropper`,
+ * `preview-changed`
  * (BlockPreview: color, days and times as soon as they change, the name once the name
  * field loses focus).
  */
@@ -566,7 +567,17 @@ export class PcBlockEditor extends LitElement {
     } else if (multiple) {
       first = html`<span></span>`;
     }
-    return html`<div class="when-row ${current ? "current" : ""}">
+    // Another saved row of the group can be clicked to make its block the selected one.
+    const selectable = multiple && !current && !isNew(w.id);
+    return html`<div
+      class="when-row ${current ? "current" : ""} ${selectable ? "selectable" : ""}"
+      title=${selectable ? "Select this block" : ""}
+      @click=${(e: MouseEvent) => {
+        // Clicks on the row's fields and buttons are theirs.
+        if (!selectable || (e.target as Element).closest("button, select, pc-time-input")) return;
+        this.fire("select-when", { blockId: w.id });
+      }}
+    >
       ${first}
       <select
         aria-label="Day"
@@ -922,6 +933,12 @@ export class PcBlockEditor extends LitElement {
       }
       .when-row.current {
         background: color-mix(in srgb, var(--block-color) 14%, transparent);
+      }
+      .when-row.selectable {
+        cursor: pointer;
+      }
+      .when-row.selectable:hover {
+        background: color-mix(in srgb, var(--block-color) 7%, transparent);
       }
       .when-row.head {
         color: var(--pc-text-2);
