@@ -85,7 +85,9 @@ Open **Punch Clock** in the sidebar.
   ("Morning 1") and a new color, and opens on its own. If you save a block with the name and color of another
   group, it asks whether to replace the block's actions and conditions with the group's and join
   it; cancel to pick another name or color instead. Deleting a block of a group asks whether to
-  delete just that one or all of them.
+  delete just that one or all of them. To delete one particular block of the group, click the
+  trash icon under its row's split icon; after you confirm, the rest of the group stays open
+  with any unsaved changes.
 - **Duplicate** (copy icon) copies a block to any days you pick, optionally into another tab. The
   copies have the same name and color, so in the same tab they join the block's group.
 - **Eyedropper** (pipette icon): click it, then click another block to copy that block's

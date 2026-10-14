@@ -11,7 +11,8 @@
   under a numbered name and a new color, and the eyedropper adds the block you're editing to the group it copies
   from. Saving a block with another group's name and color asks whether to take that group's
   actions and conditions and join it. Deleting a grouped block offers to delete just it or the
-  whole group.
+  whole group, and a trash icon on each row (under the split icon) deletes that block, after
+  asking.
 - `punch_clock/blocks/update_many` and `punch_clock/blocks/delete_many` WebSocket commands, which
   change several blocks in one revision.
 

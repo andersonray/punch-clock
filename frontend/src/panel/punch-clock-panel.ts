@@ -481,6 +481,34 @@ export class PunchClockPanel extends LitElement {
    * Split a block off from its group by numbering its name and giving it a new color, then
    * edit it on its own. Unsaved changes to the group are saved or discarded first.
    */
+  /**
+   * Delete one block of the group being edited (its row's delete button), after asking.
+   * The editor stays on the rest of the group, keeping any unsaved changes to it.
+   */
+  private async deleteWhen(blockId: string): Promise<void> {
+    const editor = this.editor;
+    const config = this._config;
+    const when = editor?._whens.find((w) => w.id === blockId);
+    if (!editor || !config || !when) return;
+    const label = blockLabel(editor._draft, this.hass.states);
+    const time = `${dayName(when.day, this.language, "long")} ${formatRange(when.start, when.duration, this.use24h)}`;
+    const ok = await this.confirmDialog.ask({
+      heading: "Delete block?",
+      text:
+        `Delete the "${label}" block on ${time}? The rest of the group stays. ` +
+        "This can't be undone.",
+      confirmText: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
+    editor.removeWhen(blockId);
+    if (blockId === this._selectedId) {
+      const saved = editor._whens.find((w) => config.blocks.some((b) => b.id === w.id));
+      this._selectedId = saved?.id ?? null;
+    }
+    await this.run(() => this.api.deleteBlock(blockId));
+  }
+
   private async splitBlock(blockId: string): Promise<void> {
     this._picking = false;
     if (!(await this.okToLeaveEditor())) return;
@@ -732,6 +760,8 @@ export class PunchClockPanel extends LitElement {
                       void this.deleteSelected(e.detail.blockIds)}
                     @split-block=${(e: CustomEvent<{ blockId: string }>) =>
                       void this.splitBlock(e.detail.blockId)}
+                    @delete-when=${(e: CustomEvent<{ blockId: string }>) =>
+                      void this.deleteWhen(e.detail.blockId)}
                     @duplicate-block=${(e: CustomEvent<{ block: Block }>) => (this._duplicateSource = e.detail.block)}
                     @start-eyedropper=${() => (this._picking = !this._picking)}
                     @preview-changed=${(e: CustomEvent<BlockPreview>) => (this._preview = e.detail)}

@@ -1024,4 +1024,39 @@ describe("punch-clock-panel", () => {
     expect(editor()).toBeNull();
     expect(blocks().some((b) => b.textContent?.includes("Morning"))).toBe(true); // the purple one
   });
+
+  it("deletes one block of a group from its row, after asking", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Morning", 1); // Wednesday
+    const ed = editor()!;
+    shadow(ed).querySelector<HTMLButtonElement>('.swatch[aria-label="#33b679"]')!.click();
+    await settle(el);
+    const rowDelete = (i: number) =>
+      whenRows(editor()!)[i]!.querySelector<HTMLButtonElement>('[aria-label^="Delete"]')!;
+    expect(whenRows(ed).every((r) => r.querySelector('[aria-label^="Delete"]'))).toBe(true);
+
+    rowDelete(2).click();
+    await settle(el);
+    await confirmChoice("Cancel");
+    expect(fake.calls.some((c) => c.type === "punch_clock/blocks/delete")).toBe(false);
+
+    // Friday goes; the rest of the group stays open with its unsaved color.
+    rowDelete(2).click();
+    await settle(el);
+    await confirmChoice("Delete");
+    expect(lastCall("blocks/delete")).toMatchObject({ block_id: "b_fri" });
+    expect(editor()!._whens.map((w) => w.id)).toEqual(["b_morning", "b_wed"]);
+    expect(editor()!._draft).toMatchObject({ id: "b_wed", color: "#33b679" });
+    expect(editor()!.dirty).toBe(true);
+    expect(selected()).toHaveLength(2);
+
+    // Deleting the selected block moves the selection to the rest of the group.
+    rowDelete(1).click();
+    await settle(el);
+    await confirmChoice("Delete");
+    expect(lastCall("blocks/delete")).toMatchObject({ block_id: "b_wed" });
+    expect(editor()!._draft).toMatchObject({ id: "b_morning", color: "#33b679" });
+    // One block left: its row has nothing to split or delete.
+    expect(shadow(editor()).querySelector('.when-row [aria-label^="Delete"]')).toBeNull();
+  });
 });

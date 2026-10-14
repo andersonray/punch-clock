@@ -79,8 +79,9 @@ export interface BlockPreview {
  * actions and conditions, and each has its own day and times. Works on a draft; Save
  * writes every block of the group at once, and creates the times added with "Add a time".
  *
- * Events: `close-editor`, `delete-block` ({ blockIds }: the group), `duplicate-block`
- * ({ block }), `split-block` ({ blockId }), `start-eyedropper`, `preview-changed`
+ * Events: `close-editor`, `delete-block` ({ blockIds }: the group), `delete-when`
+ * ({ blockId }: one block of the group), `duplicate-block` ({ block }), `split-block`
+ * ({ blockId }), `start-eyedropper`, `preview-changed`
  * (BlockPreview: color, days and times as soon as they change, the name once the name
  * field loses focus).
  */
@@ -534,14 +535,24 @@ export class PcBlockEditor extends LitElement {
         ${icon(mdiClose, 18)}
       </button>`;
     } else if (splittable) {
-      first = html`<button
-        class="icon-btn small"
-        aria-label=${`Split ${label} into its own block`}
-        title="Split into its own block"
-        @click=${() => this.fire("split-block", { blockId: w.id })}
-      >
-        ${icon(mdiCallSplit, 18)}
-      </button>`;
+      first = html`<div class="row-tools">
+        <button
+          class="icon-btn small"
+          aria-label=${`Split ${label} into its own block`}
+          title="Split into its own block"
+          @click=${() => this.fire("split-block", { blockId: w.id })}
+        >
+          ${icon(mdiCallSplit, 18)}
+        </button>
+        <button
+          class="icon-btn small delete"
+          aria-label=${`Delete ${label}`}
+          title="Delete this block"
+          @click=${() => this.fire("delete-when", { blockId: w.id })}
+        >
+          ${icon(mdiDelete, 18)}
+        </button>
+      </div>`;
     } else if (multiple) {
       first = html`<span></span>`;
     }
@@ -908,6 +919,16 @@ export class PcBlockEditor extends LitElement {
       }
       .whens.multiple .when-info {
         grid-column: 2 / -1;
+      }
+      /* Split above delete, next to the row's fields and its duration line. */
+      .row-tools {
+        grid-row: span 2;
+        display: flex;
+        flex-direction: column;
+        align-self: start;
+      }
+      .row-tools .delete:hover {
+        color: var(--pc-error);
       }
       .swatches {
         display: flex;
