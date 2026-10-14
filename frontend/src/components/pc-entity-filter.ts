@@ -85,6 +85,7 @@ export class PcEntityFilter extends LitElement {
         color: var(--pc-text-2);
         font-size: 0.85em;
         margin-right: 2px;
+        white-space: nowrap;
       }
       .chip-btn {
         display: inline-flex;
