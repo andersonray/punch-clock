@@ -15,12 +15,15 @@ export class PcTimeInput extends LitElement {
     value: { type: Number },
     use24h: { type: Boolean },
     label: {},
+    anchor: { attribute: false },
     _open: { state: true },
   };
 
   declare value: number;
   declare use24h: boolean;
   declare label: string;
+  /** Element to center the picker over; the window if null. */
+  declare anchor: Element | null;
   declare _open: boolean;
 
   constructor() {
@@ -28,6 +31,7 @@ export class PcTimeInput extends LitElement {
     this.value = 0;
     this.use24h = false;
     this.label = "Time";
+    this.anchor = null;
     this._open = false;
   }
 
@@ -67,6 +71,7 @@ export class PcTimeInput extends LitElement {
         .value=${this.value}
         .use24h=${this.use24h}
         .label=${this.label}
+        .anchor=${this.anchor}
         @picked=${(e: CustomEvent<{ value: number }>) => {
           this.emit(e.detail.value);
           this.close();

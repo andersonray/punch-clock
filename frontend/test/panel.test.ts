@@ -582,6 +582,35 @@ describe("punch-clock-panel", () => {
     expect(ed._draft.start).toBe(465);
   });
 
+  it("centers the time picker over the block editor", async () => {
+    await mount();
+    blocks()
+      .find((b) => b.textContent?.includes("Morning"))!
+      .click();
+    await settle(el);
+    const ed = editor()!;
+    ed.getBoundingClientRect = () =>
+      ({ left: 500, top: 56, right: 960, bottom: 756, width: 460, height: 700 }) as DOMRect;
+    const [start] = timeInputs(ed);
+    const picker = shadow(start).querySelector("pc-time-picker")!;
+    const dialog = shadow(picker).querySelector("dialog")!;
+    Object.defineProperty(dialog, "offsetWidth", { value: 328 });
+    Object.defineProperty(dialog, "offsetHeight", { value: 500 });
+    shadow(start).querySelector<HTMLButtonElement>(".field")!.click();
+    await settle(el);
+    expect(dialog.style.left).toBe("566px"); // 500 + (460 - 328) / 2
+    expect(dialog.style.top).toBe("156px"); // 56 + (700 - 500) / 2
+
+    // It stays inside the window.
+    buttonNamed(picker, "Cancel").click();
+    await settle(el);
+    ed.getBoundingClientRect = () =>
+      ({ left: 900, top: 0, right: 1360, bottom: 700, width: 460, height: 700 }) as DOMRect;
+    shadow(start).querySelector<HTMLButtonElement>(".field")!.click();
+    await settle(el);
+    expect(dialog.style.left).toBe(`${window.innerWidth - 328 - 8}px`);
+  });
+
   it("moves the block in the calendar as soon as its day or times change", async () => {
     await mount();
     blocks()

@@ -16,6 +16,11 @@
 - `punch_clock/blocks/update_many` and `punch_clock/blocks/delete_many` WebSocket commands, which
   change several blocks in one revision.
 
+### Changed
+
+- The clock-dial time picker opens over the block editor instead of in the middle of the window,
+  so it's closer to the start and stop fields.
+
 ### Fixed
 
 - Changing the temperature unit no longer re-sends the temperatures of running blocks, which

@@ -574,6 +574,7 @@ export class PcBlockEditor extends LitElement {
         label="Start"
         .value=${w.start}
         ?use24h=${this.use24h}
+        .anchor=${this}
         @value-changed=${(e: CustomEvent<{ value: number }>) =>
           this.patchWhen(w.id, {
             start: e.detail.value,
@@ -584,6 +585,7 @@ export class PcBlockEditor extends LitElement {
         label="Stop"
         .value=${stop}
         ?use24h=${this.use24h}
+        .anchor=${this}
         @value-changed=${(e: CustomEvent<{ value: number }>) =>
           this.patchWhen(w.id, { duration: durationBetween(w.start, e.detail.value) })}
       ></pc-time-input>
