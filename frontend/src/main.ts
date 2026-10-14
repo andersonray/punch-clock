@@ -47,5 +47,8 @@ declare global {
     "pc-week-view": PcWeekView;
     "pc-time-picker": PcTimePicker;
     "pc-time-input": PcTimeInput;
+    "pc-action-editor": PcActionEditor;
+    "pc-entity-picker": PcEntityPicker;
+    "pc-tab-dialog": PcTabDialog;
   }
 }

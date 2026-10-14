@@ -15,6 +15,7 @@ import {
   sortWhens,
   splitColor,
   splitName,
+  tabEntities,
   valueSuggestions,
   whenOf,
 } from "../src/logic/model";
@@ -85,6 +86,26 @@ describe("actions", () => {
     expect(
       actionProblems([{ id: "a", type: "service", service: "nope", target: {}, data: {} }]),
     ).toHaveLength(1);
+  });
+
+  it("lists the entities a tab's blocks set", () => {
+    const light = { id: "a-l", type: "entity" as const, entity_id: "light.porch", settings: {} };
+    const service = {
+      id: "a-s",
+      type: "service" as const,
+      service: "script.turn_on",
+      target: { entity_id: ["script.x"] },
+      data: {},
+    };
+    const config = {
+      blocks: [
+        block("a"),
+        block("b", { actions: [light, service, ...block("b").actions] }),
+        block("c", { tab_id: "t2", actions: [{ ...light, entity_id: "light.other" }] }),
+      ],
+    } as Config;
+    expect(tabEntities(config, "t1")).toEqual(["climate.house", "light.porch"]);
+    expect(tabEntities(config, "t2")).toEqual(["light.other"]);
   });
 
   it("copies actions and conditions with fresh IDs", () => {

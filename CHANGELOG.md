@@ -15,6 +15,8 @@
   asking.
 - `punch_clock/blocks/update_many` and `punch_clock/blocks/delete_many` WebSocket commands, which
   change several blocks in one revision.
+- Adding a default value to a tab opens the entity list right away, with the entities that the
+  tab's blocks set (and that don't have a default yet) at the top.
 
 ### Changed
 

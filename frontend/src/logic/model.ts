@@ -272,6 +272,16 @@ export function controlledEntities(config: Config): Set<string> {
   return out;
 }
 
+/** Entities that the entity actions of a tab's blocks set, in the order they first appear. */
+export function tabEntities(config: Config, tabId: string): string[] {
+  const out = new Set<string>();
+  for (const block of config.blocks) {
+    if (block.tab_id !== tabId) continue;
+    for (const a of block.actions) if (a.type === "entity" && a.entity_id) out.add(a.entity_id);
+  }
+  return [...out];
+}
+
 /** Condition entities that the schedule also controls (possible feedback loop). */
 export function feedbackEntities(group: Group, config: Config): string[] {
   const controlled = controlledEntities(config);

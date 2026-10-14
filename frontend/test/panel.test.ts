@@ -762,6 +762,45 @@ describe("punch-clock-panel", () => {
     expect(twelve).toContain("1 PM");
   });
 
+  it("lists the entities the tab's blocks set first when adding a default value", async () => {
+    await mount();
+    shadow(el)
+      .querySelector("pc-tab-bar")!
+      .dispatchEvent(new CustomEvent("tab-action", { detail: { tabId: "t_1", action: "edit" } }));
+    await settle(el);
+    const dialog = shadow(el).querySelector("pc-tab-dialog")!;
+    buttonNamed(dialog, "Default value").click();
+    await settle(el);
+    const picker = shadow(shadow(dialog).querySelector("pc-action-editor")).querySelector(
+      "pc-entity-picker",
+    )!;
+    // The new default's entity list opens by itself, with the tab's entities on top.
+    const items = () =>
+      [...shadow(picker).querySelectorAll("li")].map((li) =>
+        li.classList.contains("heading")
+          ? `# ${li.textContent!.trim()}`
+          : li.querySelector(".id")!.textContent,
+      );
+    expect(items()).toEqual([
+      "# Set by this tab's blocks",
+      "climate.house",
+      "# Other entities",
+      "input_boolean.guests",
+    ]);
+
+    // Once an entity has a default, it's no longer suggested.
+    shadow(picker).querySelectorAll<HTMLLIElement>('li[role="option"]')[0]!.click();
+    await settle(el);
+    buttonNamed(dialog, "Default value").click();
+    await settle(el);
+    const second = shadow(
+      [...shadow(dialog).querySelectorAll("pc-action-editor")][1]!,
+    ).querySelector("pc-entity-picker")!;
+    expect(
+      [...shadow(second).querySelectorAll("li")].map((li) => li.textContent!.trim()),
+    ).not.toContain("Set by this tab's blocks");
+  });
+
   it("duplicates a block to several days", async () => {
     await mount();
     blocks()

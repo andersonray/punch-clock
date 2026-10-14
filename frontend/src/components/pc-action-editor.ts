@@ -34,6 +34,8 @@ export class PcActionEditor extends LitElement {
     action: { attribute: false },
     units: { attribute: false },
     entityOnly: { type: Boolean },
+    suggestions: { attribute: false },
+    suggestionsLabel: {},
     _dataText: { state: true },
     _dataError: { state: true },
   };
@@ -43,6 +45,9 @@ export class PcActionEditor extends LitElement {
   declare units: TemperatureUnits;
   /** Hide the generic service option (used for tab defaults). */
   declare entityOnly: boolean;
+  /** Entities to list first in the entity picker, under `suggestionsLabel`. */
+  declare suggestions: readonly string[];
+  declare suggestionsLabel: string;
   declare _dataText: string | null;
   declare _dataError: string;
 
@@ -50,8 +55,15 @@ export class PcActionEditor extends LitElement {
     super();
     this.units = { schedule: "°C", ha: "°C" };
     this.entityOnly = false;
+    this.suggestions = [];
+    this.suggestionsLabel = "Suggested";
     this._dataText = null;
     this._dataError = "";
+  }
+
+  /** Focus the entity picker, which opens its list. */
+  override focus(): void {
+    this.renderRoot.querySelector("pc-entity-picker")?.focus();
   }
 
   private emit(action: Action): void {
@@ -190,6 +202,8 @@ export class PcActionEditor extends LitElement {
           .hass=${this.hass}
           .value=${action.entity_id}
           .domains=${ACTION_DOMAINS}
+          .suggestions=${this.suggestions}
+          .suggestionsLabel=${this.suggestionsLabel}
           ?invalid=${!action.entity_id}
           label="Entity to set"
           @value-changed=${(e: CustomEvent<{ value: string }>) =>
