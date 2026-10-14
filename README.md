@@ -77,7 +77,8 @@ Open **Punch Clock** in the sidebar.
 - **Groups.** Blocks in the same tab with the same name and color are a group, for doing the
   same thing at different times on different days. Clicking one highlights the whole group, and
   the editor lists the day, start and stop of each block. **Add a time** adds another block to
-  the group, with the last row's start and stop on the next day; it's created when you save.
+  the group, with the selected row's start and stop on the next day (or the next one without a
+  time starting then); it's created when you save.
   Changes to the name, color, actions and conditions apply to every block of the group when you
   save. To take a block out of its
   group, click the split icon at the start of its row: it gets the name with a number added

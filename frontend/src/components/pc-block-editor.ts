@@ -28,6 +28,7 @@ import {
   newEntityAction,
   newId,
   sortWhens,
+  weekMinute,
   whenOf,
   type When,
 } from "../logic/model";
@@ -278,11 +279,21 @@ export class PcBlockEditor extends LitElement {
     if ("conditions" in changes) this.scheduleEvaluate();
   }
 
-  /** Add another time to the group: the last row's start and stop, on the next day. */
+  /**
+   * Add another time to the group: the current row's start and stop, on the next day that
+   * doesn't have a time starting then yet (so repeated clicks walk through the week). The
+   * row goes in calendar order.
+   */
   private addWhen(): void {
-    const last = this._whens.at(-1)!;
-    const when = { ...last, id: newId("new"), day: (last.day + 1) % 7 };
-    this._whens = [...this._whens, when];
+    const from = this.whenFor(this._draft.id);
+    const days = [1, 2, 3, 4, 5, 6].map((n) => (from.day + n) % 7);
+    const free = (day: number) => !this._whens.some((w) => w.day === day && w.start === from.start);
+    const when = { ...from, id: newId("new"), day: days.find(free) ?? days[0]! };
+    const weekStart = this.config.settings.week_start;
+    const at = this._whens.findIndex((w) => weekMinute(w, weekStart) > weekMinute(when, weekStart));
+    const whens = [...this._whens];
+    whens.splice(at < 0 ? whens.length : at, 0, when);
+    this._whens = whens;
     this._error = "";
   }
 

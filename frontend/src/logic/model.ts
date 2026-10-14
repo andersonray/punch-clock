@@ -162,9 +162,13 @@ export function blockGroup(blocks: Block[], block: Block): Block[] {
   return members.some((b) => b.id === block.id) ? members : [block];
 }
 
+/** Where a time falls in a week that starts on `weekStart`, in minutes from its start. */
+export const weekMinute = (w: When, weekStart: number): number =>
+  ((w.day - weekStart + 7) % 7) * MINUTES_PER_DAY + w.start;
+
 /** Calendar order for a week that starts on `weekStart`. */
 export function sortWhens(whens: When[], weekStart: number): When[] {
-  const key = (w: When) => ((w.day - weekStart + 7) % 7) * MINUTES_PER_DAY + w.start;
+  const key = (w: When) => weekMinute(w, weekStart);
   return [...whens].sort((a, b) => key(a) - key(b) || a.id.localeCompare(b.id));
 }
 

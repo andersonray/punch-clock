@@ -7,7 +7,7 @@
 - Block groups: blocks in a tab with the same name and color share their actions and
   conditions. Selecting one highlights the group, and the editor lists every block's day and
   times, so one edit changes them all. *Add a time* adds another block to the group, on the day
-  after the last one. A split icon on each row takes a block out of the group
+  after the selected one. A split icon on each row takes a block out of the group
   under a numbered name and a new color, and the eyedropper adds the block you're editing to the group it copies
   from. Saving a block with another group's name and color asks whether to take that group's
   actions and conditions and join it. Deleting a grouped block offers to delete just it or the

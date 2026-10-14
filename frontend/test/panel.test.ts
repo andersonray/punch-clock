@@ -881,31 +881,37 @@ describe("punch-clock-panel", () => {
     expect(whenRows(editor()!)).toHaveLength(1);
   });
 
-  it("adds a time on the next day, and creates its block when saving", async () => {
+  it("adds a time on the day after the selected one, and creates it when saving", async () => {
     await mount(addMorningGroup);
-    await clickBlock("Morning");
+    await clickBlock("Morning", 1); // Wednesday 7:00-9:00
     const ed = editor()!;
     for (let i = 0; i < 2; i++) {
       buttonNamed(ed, "Add a time").click();
       await settle(el);
     }
-    // The last row is Friday 8:00-10:00, so Saturday, then Sunday.
-    expect(ed._whens.slice(3)).toMatchObject([
-      { day: 5, start: 480, duration: 120 },
-      { day: 6, start: 480, duration: 120 },
+    // Thursday, then Friday since Thursday has a 7:00 now; each in calendar order.
+    expect(ed._whens).toMatchObject([
+      { id: "b_morning" },
+      { id: "b_wed" },
+      { day: 3, start: 420, duration: 120 },
+      { day: 4, start: 420, duration: 120 },
+      { id: "b_fri", day: 4, start: 480 },
     ]);
     expect(selected()).toHaveLength(5); // shown in the calendar before saving
     expect(fake.calls.some((c) => String(c.type).startsWith("punch_clock/blocks/"))).toBe(false);
 
-    // An unsaved time can't be selected in the calendar (Sunday is the first column).
-    selected()[0]!.click();
+    // An unsaved time can't be selected in the calendar (Thursday is column 4).
+    shadow(weekView())
+      .querySelectorAll(".col")[4]!
+      .querySelector<HTMLButtonElement>(".block")!
+      .click();
     await settle(el);
-    expect(editor()!._draft.id).toBe("b_morning");
+    expect(editor()!._draft.id).toBe("b_wed");
 
     // Its row has a remove button instead of the split button.
-    const sunday = whenRows(ed)[4]!;
-    expect(sunday.querySelector('[aria-label^="Split"]')).toBeNull();
-    sunday.querySelector<HTMLButtonElement>('[aria-label^="Remove"]')!.click();
+    const friday = whenRows(ed)[3]!;
+    expect(friday.querySelector('[aria-label^="Split"]')).toBeNull();
+    friday.querySelector<HTMLButtonElement>('[aria-label^="Remove"]')!.click();
     await settle(el);
     expect(ed._whens).toHaveLength(4);
 
@@ -916,13 +922,13 @@ describe("punch-clock-panel", () => {
       {
         tab_id: "t_1",
         name: "Morning",
-        day: 5,
-        start: 480,
+        day: 3,
+        start: 420,
         duration: 120,
         actions: [{ entity_id: "climate.house" }],
       },
     ]);
-    expect(ed._whens.map((w) => w.id)).toEqual(["b_morning", "b_wed", "b_fri", "b_new0"]);
+    expect(ed._whens.map((w) => w.id)).toEqual(["b_morning", "b_wed", "b_new0", "b_fri"]);
     expect(ed.dirty).toBe(false);
   });
 
