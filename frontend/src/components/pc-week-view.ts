@@ -55,6 +55,8 @@ const LONG_PRESS_MS = 450;
 const MOVE_TOLERANCE_PX = 8;
 const EDGE_SCROLL_PX = 48;
 const MIN_BLOCK_PX = 18;
+/** Space left below every block, so back-to-back blocks don't run together. */
+const BLOCK_GAP_PX = 2;
 
 /**
  * The week calendar for one tab. Days are columns, time runs down. Blocks that
@@ -347,7 +349,7 @@ export class PcWeekView extends LitElement {
     ].filter(Boolean);
     return html`<button
       class=${classes}
-      style="top:${top}px;height:${height}px;--left:${placed.left};--width:${placed.width};--block-color:${block.color}"
+      style="top:${top}px;height:${height - BLOCK_GAP_PX}px;--left:${placed.left};--width:${placed.width};--block-color:${block.color}"
       aria-label=${`${label}, ${day} ${range}${notes.length ? `, ${notes.join(", ")}` : ""}`}
       title=${`${label}\n${day} ${range}${notes.length ? `\n${notes.join("\n")}` : ""}`}
       @pointerdown=${(e: Event) => e.stopPropagation()}

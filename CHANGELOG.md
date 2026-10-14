@@ -22,6 +22,7 @@
   undid manual changes.
 - The tab dialog's description of default values now says that a running block in any tab
   overrides them, not only the tab's own blocks.
+- Back-to-back blocks no longer run together in the calendar: a small gap separates them.
 
 ## 0.1.0 (2026-10-13)
 

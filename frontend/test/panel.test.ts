@@ -284,6 +284,26 @@ describe("punch-clock-panel", () => {
     expect(heads[0]).toBe("Sun");
   });
 
+  it("leaves a gap between back-to-back blocks", async () => {
+    await mount((config) => {
+      // Target is Wednesday 10:00-11:00.
+      config.blocks.push(block("b_after", { name: "After", day: 2, start: 660, duration: 60 }));
+    });
+    const box = (name: string) => {
+      const style = blocks()
+        .find((b) => b.textContent?.includes(name))!
+        .getAttribute("style")!;
+      return {
+        top: Number(/top:([\d.]+)px/.exec(style)![1]),
+        height: Number(/height:([\d.]+)px/.exec(style)![1]),
+      };
+    };
+    const target = box("Target");
+    const after = box("After");
+    expect(after.top).toBe(528); // 11:00 at 48 px per hour
+    expect(target.top + target.height).toBe(after.top - 2);
+  });
+
   it("opens the editor when a block is clicked", async () => {
     await mount();
     blocks()
