@@ -1040,6 +1040,8 @@ export class PcWeekView extends LitElement {
         display: none;
       }
       .name {
+        /* In a block too short for both lines, clip the time instead of squashing the name. */
+        flex: none;
         font-weight: 500;
         max-width: 100%;
         overflow: hidden;

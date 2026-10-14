@@ -43,6 +43,8 @@
 - The tab dialog's description of default values now says that a running block in any tab
   overrides them, not only the tab's own blocks.
 - Back-to-back blocks no longer run together in the calendar: a small gap separates them.
+- A block too short for both its name and times shows the whole name in the calendar and cuts
+  off the times, instead of cutting off the top of the name.
 
 ## 0.1.0 (2026-10-13)
 
