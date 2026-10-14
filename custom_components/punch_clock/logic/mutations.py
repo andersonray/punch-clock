@@ -131,15 +131,47 @@ def create_blocks(config: Config, items: Sequence[Mapping[str, Any]]) -> tuple[C
     return _bump(config, seq=seq, blocks=(*config.blocks, *created)), created
 
 
-def update_block(config: Config, block_id: str, changes: Mapping[str, Any]) -> tuple[Config, Block]:
-    _check_fields(changes, BLOCK_FIELDS, "changes")
+def _changed_block(config: Config, block_id: str, changes: Mapping[str, Any], path: str) -> Block:
+    """The block with ``changes`` applied and validated. ``path`` prefixes error locations."""
+    _check_fields(changes, BLOCK_FIELDS, f"{path}changes")
     old = _block(config, block_id)
-    block = parse_block({**dump_block(old), **changes}, "block", block_id=old.id, seq=old.seq)
+    block = parse_block(
+        {**dump_block(old), **changes}, f"{path}block", block_id=old.id, seq=old.seq
+    )
     _tab(config, block.tab_id)
+    return block
+
+
+def update_block(config: Config, block_id: str, changes: Mapping[str, Any]) -> tuple[Config, Block]:
+    block = _changed_block(config, block_id, changes, "")
     blocks = tuple(block if b.id == block_id else b for b in config.blocks)
     return _bump(config, blocks=blocks), block
 
 
+def update_blocks(
+    config: Config, updates: Sequence[tuple[str, Mapping[str, Any]]]
+) -> tuple[Config, list[Block]]:
+    """Update several blocks atomically, as one revision (used to save a block group)."""
+    if not updates:
+        raise ConfigError("updates", "must not be empty")
+    changed: dict[str, Block] = {}
+    for i, (block_id, changes) in enumerate(updates):
+        if block_id in changed:
+            raise ConfigError(f"updates[{i}].block_id", "is listed more than once")
+        changed[block_id] = _changed_block(config, block_id, changes, f"updates[{i}].")
+    blocks = tuple(changed.get(b.id, b) for b in config.blocks)
+    return _bump(config, blocks=blocks), list(changed.values())
+
+
 def delete_block(config: Config, block_id: str) -> Config:
-    _block(config, block_id)
-    return _bump(config, blocks=tuple(b for b in config.blocks if b.id != block_id))
+    return delete_blocks(config, [block_id])
+
+
+def delete_blocks(config: Config, block_ids: Sequence[str]) -> Config:
+    """Delete one or more blocks atomically."""
+    if not block_ids:
+        raise ConfigError("block_ids", "must not be empty")
+    for block_id in block_ids:
+        _block(config, block_id)
+    gone = set(block_ids)
+    return _bump(config, blocks=tuple(b for b in config.blocks if b.id not in gone))

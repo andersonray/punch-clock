@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `punch_clock/blocks/update_many` and `punch_clock/blocks/delete_many` WebSocket commands, which
+  change several blocks in one revision.
+
 ## 0.1.0 (2026-10-13)
 
 First version.
