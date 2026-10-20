@@ -11,6 +11,13 @@ updates:
     groups:
       frontend-dev:
         dependency-type: development
+    ignore:
+      # typescript-eslint doesn't support TypeScript 7 yet.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      # Keep the Node types on the Node major that CI and releases use (24).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: pip
     directory: /
     schedule:
