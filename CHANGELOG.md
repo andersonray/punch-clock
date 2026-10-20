@@ -28,6 +28,8 @@
   column to make the block run past midnight.
 - Click a day's name in the calendar to show only that day, with arrows (or Shift+scroll) for
   the previous and next day.
+- On a touch screen, swipe left or right in the one-day view for the next or previous day. On
+  a phone, the calendar opens on today instead of the whole week.
 - Adding a default value to a tab opens the entity list right away, with the entities that the
   tab's blocks set (and that don't have a default yet) at the top.
 
@@ -45,6 +47,8 @@
 - Back-to-back blocks no longer run together in the calendar: a small gap separates them.
 - A block too short for both its name and times shows the whole name in the calendar and cuts
   off the times, instead of cutting off the top of the name.
+- On a phone, the eyedropper left the block editor covering the calendar, so there was no
+  block to pick. The editor now steps aside until you pick one or cancel.
 
 ## 0.1.0 (2026-10-13)
 
