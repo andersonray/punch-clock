@@ -28,6 +28,8 @@
   column to make the block run past midnight.
 - Click a day's name in the calendar to show only that day, with arrows (or Shift+scroll) for
   the previous and next day.
+- On a touch screen, swipe left or right in the one-day view for the next or previous day. On
+  a phone, the calendar opens on today instead of the whole week.
 - Adding a default value to a tab opens the entity list right away, with the entities that the
   tab's blocks set (and that don't have a default yet) at the top.
 

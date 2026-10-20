@@ -90,6 +90,15 @@ const REVEAL_MARGIN_PX = 16;
 const SWIPE_PX = 120;
 /** A pause this long between wheel events ends a touchpad swipe. */
 const SWIPE_END_MS = 200;
+/** A finger swiping sideways this far changes the day... */
+const FINGER_SWIPE_PX = 64;
+/** ...and so does a quick flick: at least this far, at this many pixels per millisecond. */
+const FLICK_PX = 24;
+const FLICK_SPEED = 0.4;
+/** How long the next day takes to slide into place. */
+const SLIDE_MS = 200;
+/** Phones start with today's day only; the whole week doesn't fit (as in the styles below). */
+const PHONE_QUERY = "(max-width: 600px)";
 const MIN_BLOCK_PX = 18;
 /** Space left below every block, so back-to-back blocks don't run together. */
 const BLOCK_GAP_PX = 2;
@@ -101,8 +110,9 @@ const BLOCK_GAP_PX = 2;
  * bottom edge changes its start or end. While drawing out a block or dragging an
  * edge, the pointer can move into the next or previous day's column to cross midnight.
  *
- * Clicking a day's name shows only that day, with buttons (and Shift+scroll) for the
- * previous and next day; clicking the name again shows the whole week.
+ * Clicking a day's name shows only that day, with buttons (and Shift+scroll, or a finger
+ * swipe) for the previous and next day; clicking the name again shows the whole week. On a
+ * phone it starts with today.
  *
  * The selected block (`currentId`) is outlined more strongly than the rest of its group
  * (`selectedIds`). When it changes, the calendar scrolls to it, and in the one-day view it
@@ -168,6 +178,19 @@ export class PcWeekView extends LitElement {
   private revealPending = false;
   /** A touchpad swipe in progress: how far it has gone, and whether it changed the day yet. */
   private swipe = { distance: 0, done: false, timer: 0 };
+  /**
+   * A finger on the one-day view: where and when it went down, how far it has gone sideways,
+   * and whether it's swiping to another day (once it has moved far enough, mostly sideways).
+   */
+  private fingerSwipe: {
+    x: number;
+    y: number;
+    time: number;
+    dx: number;
+    sideways: boolean;
+  } | null = null;
+  /** The first view was chosen: today on a phone, the whole week otherwise. */
+  private startChosen = false;
 
   constructor() {
     super();
@@ -190,12 +213,17 @@ export class PcWeekView extends LitElement {
     super.connectedCallback();
     this._now = nowIn(this.timeZone);
     this.nowTimer = window.setInterval(() => (this._now = nowIn(this.timeZone)), 30_000);
+    if (!this.startChosen) {
+      this.startChosen = true;
+      if (window.matchMedia(PHONE_QUERY).matches) this._day = this._now.day;
+    }
   }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     window.clearInterval(this.nowTimer);
     window.clearTimeout(this.swipe.timer);
+    this.fingerSwipe = null;
     this.cancelDrag();
   }
 
@@ -229,8 +257,13 @@ export class PcWeekView extends LitElement {
   }
 
   protected override firstUpdated(): void {
-    this.scroller.addEventListener("touchmove", this.onTouchMove, { passive: false });
-    this.scroller.addEventListener("wheel", this.onWheel, { passive: false });
+    const scroller = this.scroller;
+    // In the capture phase, because blocks stop touchstart from reaching their column.
+    scroller.addEventListener("touchstart", this.onSwipeStart, { passive: true, capture: true });
+    scroller.addEventListener("touchmove", this.onTouchMove, { passive: false });
+    scroller.addEventListener("touchend", this.onSwipeEnd);
+    scroller.addEventListener("touchcancel", this.onSwipeEnd);
+    scroller.addEventListener("wheel", this.onWheel, { passive: false });
   }
 
   protected override updated(changed: PropertyValues<this>): void {
@@ -320,6 +353,76 @@ export class PcWeekView extends LitElement {
       swipe.done = true;
     }
   };
+
+  private get dayColumn(): HTMLElement | null {
+    return this.renderRoot.querySelector(".col");
+  }
+
+  /** Showing one day, a finger going down may start a swipe to the next or previous day. */
+  private readonly onSwipeStart = (e: TouchEvent): void => {
+    // A second finger cancels a swipe.
+    if (this.fingerSwipe) this.endSwipe(false, e.timeStamp);
+    const touch = e.touches[0];
+    if (this._day === null || e.touches.length !== 1 || !touch || this.drag) return;
+    this.fingerSwipe = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: e.timeStamp,
+      dx: 0,
+      sideways: false,
+    };
+  };
+
+  /** The day follows a finger swiping sideways. */
+  private moveSwipe(e: TouchEvent, touch: Touch): void {
+    const swipe = this.fingerSwipe;
+    if (!swipe) return;
+    const dx = touch.clientX - swipe.x;
+    if (!swipe.sideways) {
+      const dy = touch.clientY - swipe.y;
+      if (Math.hypot(dx, dy) <= MOVE_TOLERANCE_PX) return;
+      if (Math.abs(dx) <= Math.abs(dy)) {
+        this.fingerSwipe = null; // it's a scroll
+        return;
+      }
+      swipe.sideways = true;
+    }
+    if (e.cancelable) e.preventDefault();
+    swipe.dx = dx;
+    this.dayColumn?.style.setProperty("transform", `translateX(${dx}px)`);
+  }
+
+  private readonly onSwipeEnd = (e: TouchEvent): void => {
+    if (this.fingerSwipe) this.endSwipe(e.type === "touchend", e.timeStamp);
+  };
+
+  /**
+   * The finger is lifted (`done`) or the swipe is cancelled. A swipe that went far or fast
+   * enough shows the next or previous day, which slides in; otherwise the day slides back.
+   */
+  private endSwipe(done: boolean, time: number): void {
+    const swipe = this.fingerSwipe;
+    this.fingerSwipe = null;
+    const col = this.dayColumn;
+    if (!swipe?.sideways || !col) return;
+    // It may have ended on a block; that's not a click.
+    this.suppressClickUntil = performance.now() + 400;
+    col.style.removeProperty("transform");
+    const distance = Math.abs(swipe.dx);
+    const speed = distance / Math.max(1, time - swipe.time);
+    let from = swipe.dx;
+    if (done && (distance >= FINGER_SWIPE_PX || (distance >= FLICK_PX && speed >= FLICK_SPEED))) {
+      // Swiping left shows the next day, which comes in from the right.
+      const step = swipe.dx < 0 ? 1 : -1;
+      this.stepDay(step);
+      from += step * col.offsetWidth;
+    }
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    col.animate?.([{ transform: `translateX(${from}px)` }, { transform: "none" }], {
+      duration: SLIDE_MS,
+      easing: "ease-out",
+    });
+  }
 
   // --- Dragging: new blocks and block edges -----------------------------------
 
@@ -557,17 +660,19 @@ export class PcWeekView extends LitElement {
     if (!touch) return;
     if (this.press) {
       if (
-        Math.hypot(touch.clientX - this.press.x, touch.clientY - this.press.y) > MOVE_TOLERANCE_PX
+        Math.hypot(touch.clientX - this.press.x, touch.clientY - this.press.y) <= MOVE_TOLERANCE_PX
       ) {
-        window.clearTimeout(this.press.timer);
-        this.press = null; // it's a scroll
+        return;
       }
-      return;
+      window.clearTimeout(this.press.timer);
+      this.press = null; // it's a scroll, or a swipe to another day
     }
     if (this.drag?.touch) {
       e.preventDefault(); // keep the page from scrolling while dragging
       this.updateDrag(touch.clientX, touch.clientY);
+      return;
     }
+    this.moveSwipe(e, touch);
   };
 
   private onTouchEnd(e: TouchEvent): void {
@@ -858,12 +963,18 @@ export class PcWeekView extends LitElement {
       }
       .scroller.one-day {
         --strip: max(32px, 6%);
+        /* Sideways swipes change the day; the browser only scrolls up and down. */
+        touch-action: pan-y;
       }
       .grid {
         display: grid;
         grid-template-columns: var(--gutter) repeat(var(--days), minmax(var(--min-col), 1fr));
         grid-template-rows: auto calc(var(--hour) * 24);
         min-width: min-content;
+      }
+      .one-day .grid {
+        /* A day sliding in or out doesn't widen the scroll area. */
+        overflow-x: clip;
       }
       .corner,
       .day-head {

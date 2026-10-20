@@ -6,6 +6,7 @@ import type { PunchClockPanel } from "../src/panel/punch-clock-panel";
 import type { PcBlockEditor } from "../src/components/pc-block-editor";
 import type { PcConfirmDialog } from "../src/components/pc-confirm-dialog";
 import { PALETTE } from "../src/logic/model";
+import { nowIn } from "../src/logic/time";
 
 declare const __PC_VERSION__: string;
 
@@ -318,11 +319,33 @@ function mouse(target: Element, type: string, x: number, y: number): void {
 
 const edgeSaves = () => fake.calls.filter((c) => c.type === "punch_clock/blocks/update");
 
+/** A one-finger touch event at (x, y). After `touchend`, no finger is down. */
+function finger(target: Element, type: string, x: number, y: number): void {
+  const point = new Touch({ identifier: 1, target, clientX: x, clientY: y });
+  target.dispatchEvent(
+    new TouchEvent(type, {
+      touches: type === "touchend" ? [] : [point],
+      changedTouches: [point],
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+/** Set the window width that media queries see (happy-dom's default is 1024). */
+const setViewport = (width: number) =>
+  (
+    window as unknown as { happyDOM: { setViewport(v: { width: number }): void } }
+  ).happyDOM.setViewport({ width });
+
 beforeAll(async () => {
   await import("../src/main");
 });
 
-afterEach(() => el?.remove());
+afterEach(() => {
+  el?.remove();
+  setViewport(1024);
+});
 
 describe("punch-clock-panel", () => {
   it("renders tabs and the active tab's blocks, splitting midnight-crossing blocks", async () => {
@@ -548,6 +571,58 @@ describe("punch-clock-panel", () => {
 
     await press("Friday. Show the whole week");
     expect(days()).toHaveLength(7);
+  });
+
+  it("starts with today on a phone, and swiping sideways changes the day", async () => {
+    setViewport(400);
+    const today = nowIn("UTC").day;
+    await mount((config) => {
+      config.blocks.push(block("b_today", { name: "Today", day: today, start: 300 }));
+    });
+    const col = () => shadow(weekView()).querySelector<HTMLElement>(".col")!;
+    const day = () => Number(col().dataset.day);
+    expect(shadow(weekView()).querySelectorAll(".col")).toHaveLength(1);
+    expect(day()).toBe(today);
+    expect(col().classList.contains("today")).toBe(true);
+
+    const swipe = async (target: Element, dx: number, dy = 0) => {
+      finger(target, "touchstart", 200, 300);
+      finger(target, "touchmove", 200 + dx / 2, 300 + dy / 2);
+      finger(target, "touchmove", 200 + dx, 300 + dy);
+      finger(target, "touchend", 200 + dx, 300 + dy);
+      await settle(el);
+    };
+
+    // Left shows the next day, right the previous one.
+    await swipe(col(), -100);
+    expect(day()).toBe((today + 1) % 7);
+    await swipe(col(), 100);
+    await swipe(col(), 100);
+    expect(day()).toBe((today + 6) % 7);
+    await swipe(col(), -100);
+    expect(day()).toBe(today);
+
+    // Scrolling up and down isn't a swipe.
+    await swipe(col(), -40, 160);
+    expect(day()).toBe(today);
+
+    // The day follows the finger, and goes back after a short swipe. One that ends on a
+    // block doesn't select it.
+    const target = blocks().find((b) => b.dataset.id === "b_today")!;
+    finger(target, "touchstart", 200, 300);
+    finger(target, "touchmove", 180, 302);
+    expect(col().style.transform).toBe("translateX(-20px)");
+    finger(target, "touchend", 180, 302);
+    target.click();
+    await settle(el);
+    expect(col().style.transform).toBe("");
+    expect(day()).toBe(today);
+    expect(editor()).toBeNull();
+
+    // The whole week is still a tap away.
+    buttonNamed(weekView(), "Week").click();
+    await settle(el);
+    expect(shadow(weekView()).querySelectorAll(".col")).toHaveLength(7);
   });
 
   it("copies actions and conditions with the eyedropper after confirming", async () => {

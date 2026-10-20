@@ -77,8 +77,9 @@ Open **Punch Clock** in the sidebar.
   the blocks that act on them; **Show all** clears the filter. The block you're editing always
   stays visible.
 - **One day at a time.** Click a day's name above the calendar to show only that day, which
-  leaves more room when blocks overlap. The arrows beside the name, or Shift+scroll, go to the
-  previous and next day. Click the name again, or **Week**, to see the whole week.
+  leaves more room when blocks overlap. The arrows beside the name, Shift+scroll, or swiping left
+  or right on a touch screen go to the next and previous day. Click the name again, or **Week**,
+  to see the whole week.
 
 ![The calendar showing only the porch light and garage door blocks](docs/images/filter.png)
 
@@ -168,8 +169,8 @@ when they're set. Changing the unit converts the temperatures already in your sc
 
 ### On a phone
 
-The calendar scrolls sideways through the week, and the one-day view fits a day on the screen.
-The editor takes up the whole screen.
+The calendar opens on today. Swipe left or right for the next or previous day, or tap **Week**
+to see the whole week, which scrolls sideways. The editor takes up the whole screen.
 
 <p>
   <img src="docs/images/phone-day.png" width="300" alt="The one-day view on a phone">
