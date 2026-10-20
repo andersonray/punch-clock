@@ -6,6 +6,8 @@ export {
   mdiCalendarClock,
   mdiCallSplit,
   mdiCheck,
+  mdiChevronLeft,
+  mdiChevronRight,
   mdiClockOutline,
   mdiClose,
   mdiCog,

@@ -6,6 +6,7 @@ import type { PunchClockPanel } from "../src/panel/punch-clock-panel";
 import type { PcBlockEditor } from "../src/components/pc-block-editor";
 import type { PcConfirmDialog } from "../src/components/pc-confirm-dialog";
 import { PALETTE } from "../src/logic/model";
+import { nowIn } from "../src/logic/time";
 
 declare const __PC_VERSION__: string;
 
@@ -157,6 +158,23 @@ function fakeHass(initial: Config, status: Status = makeStatus()): Fake {
         case "punch_clock/blocks/delete_many":
           remove(msg.block_ids as string[]);
           return {} as T;
+        case "punch_clock/tabs/duplicate": {
+          // Like the server: a copy, turned off, right after the original, then a config push.
+          const source = config.tabs.find((t) => t.id === msg.tab_id)!;
+          const tab = { ...source, id: "t_copy", name: `${source.name} copy`, enabled: false };
+          const blocks = config.blocks
+            .filter((b) => b.tab_id === source.id)
+            .map((b, i) => ({ ...b, id: `b_copy${i}`, tab_id: tab.id }));
+          const at = config.tabs.indexOf(source) + 1;
+          config = {
+            ...config,
+            revision: config.revision + 1,
+            tabs: [...config.tabs.slice(0, at), tab, ...config.tabs.slice(at)],
+            blocks: [...config.blocks, ...blocks],
+          };
+          push?.({ kind: "config", config: structuredClone(config) });
+          return { tab, blocks } as T;
+        }
         default:
           return {} as T;
       }
@@ -205,7 +223,9 @@ const blocks = () => [...shadow(weekView()).querySelectorAll<HTMLButtonElement>(
 const editor = () => shadow(el).querySelector("pc-block-editor") as PcBlockEditor | null;
 
 const timeInputs = (ed: Element) => [...shadow(ed).querySelectorAll("pc-time-input")];
-const whenRows = (ed: Element) => [...shadow(ed).querySelectorAll(".when-row:not(.head)")];
+const whenRows = (ed: Element) => [
+  ...shadow(ed).querySelectorAll<HTMLElement>(".when-row:not(.head)"),
+];
 const selected = () => blocks().filter((b) => b.classList.contains("selected"));
 /** Answer the panel's confirmation dialog (or the one in `host`, such as the editor). */
 const confirmChoice = async (label: string, host: Element = el) => {
@@ -265,11 +285,67 @@ function tapDial(picker: Element, x: number, y: number): void {
   }
 }
 
+const HOUR = 48;
+const COLUMN = 100;
+
+/** Give the day columns real positions: column i spans x = 52 + 100i to 152 + 100i. */
+function layOutColumns(): HTMLElement[] {
+  const cols = [...shadow(weekView()).querySelectorAll<HTMLElement>(".col")];
+  cols.forEach((col, i) => {
+    const left = 52 + i * COLUMN;
+    col.getBoundingClientRect = () =>
+      ({ left, right: left + COLUMN, top: 0, bottom: 24 * HOUR, width: COLUMN }) as DOMRect;
+  });
+  return cols;
+}
+
+/** The middle of day column i, as laid out by layOutColumns. */
+const columnX = (i: number) => 52 + i * COLUMN + COLUMN / 2;
+
+const scroller = () => shadow(weekView()).querySelector(".scroller")!;
+
+function mouse(target: Element, type: string, x: number, y: number): void {
+  target.dispatchEvent(
+    new PointerEvent(type, {
+      clientX: x,
+      clientY: y,
+      button: 0,
+      pointerType: "mouse",
+      pointerId: 1,
+      bubbles: true,
+    }),
+  );
+}
+
+const edgeSaves = () => fake.calls.filter((c) => c.type === "punch_clock/blocks/update");
+
+/** A one-finger touch event at (x, y). After `touchend`, no finger is down. */
+function finger(target: Element, type: string, x: number, y: number): void {
+  const point = new Touch({ identifier: 1, target, clientX: x, clientY: y });
+  target.dispatchEvent(
+    new TouchEvent(type, {
+      touches: type === "touchend" ? [] : [point],
+      changedTouches: [point],
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+/** Set the window width that media queries see (happy-dom's default is 1024). */
+const setViewport = (width: number) =>
+  (
+    window as unknown as { happyDOM: { setViewport(v: { width: number }): void } }
+  ).happyDOM.setViewport({ width });
+
 beforeAll(async () => {
   await import("../src/main");
 });
 
-afterEach(() => el?.remove());
+afterEach(() => {
+  el?.remove();
+  setViewport(1024);
+});
 
 describe("punch-clock-panel", () => {
   it("renders tabs and the active tab's blocks, splitting midnight-crossing blocks", async () => {
@@ -282,6 +358,26 @@ describe("punch-clock-panel", () => {
       h.textContent?.trim(),
     );
     expect(heads[0]).toBe("Sun");
+  });
+
+  it("leaves a gap between back-to-back blocks", async () => {
+    await mount((config) => {
+      // Target is Wednesday 10:00-11:00.
+      config.blocks.push(block("b_after", { name: "After", day: 2, start: 660, duration: 60 }));
+    });
+    const box = (name: string) => {
+      const style = blocks()
+        .find((b) => b.textContent?.includes(name))!
+        .getAttribute("style")!;
+      return {
+        top: Number(/top:([\d.]+)px/.exec(style)![1]),
+        height: Number(/height:([\d.]+)px/.exec(style)![1]),
+      };
+    };
+    const target = box("Target");
+    const after = box("After");
+    expect(after.top).toBe(528); // 11:00 at 48 px per hour
+    expect(target.top + target.height).toBe(after.top - 2);
   });
 
   it("opens the editor when a block is clicked", async () => {
@@ -326,6 +422,236 @@ describe("punch-clock-panel", () => {
       start: 480,
       duration: 120,
     });
+  });
+
+  it("creates a block past midnight by dragging into the next or previous day", async () => {
+    await mount();
+    const cols = layOutColumns(); // Sun, Mon, Tue, ...
+    mouse(cols[1]!, "pointerdown", columnX(1), 22 * HOUR); // Monday 22:00
+    mouse(scroller(), "pointermove", columnX(2), 1 * HOUR); // over Tuesday 01:00
+    await settle(el);
+    expect(cols[1]!.querySelector(".ghost")?.textContent).toContain("22:00 – 01:00");
+    expect(cols[2]!.querySelector(".ghost")).not.toBeNull();
+    mouse(scroller(), "pointermove", columnX(2), 2 * HOUR);
+    mouse(scroller(), "pointerup", columnX(2), 2 * HOUR);
+    await settle(el);
+    const creates = () =>
+      fake.calls
+        .filter((c) => c.type === "punch_clock/blocks/create")
+        .map((c) => (c.blocks as Block[])[0]);
+    expect(creates()[0]).toMatchObject({ day: 0, start: 1320, duration: 240 });
+
+    // Monday 01:00 up into Sunday 23:00.
+    mouse(cols[1]!, "pointerdown", columnX(1), 1 * HOUR);
+    mouse(scroller(), "pointermove", columnX(0), 23 * HOUR);
+    mouse(scroller(), "pointerup", columnX(0), 23 * HOUR);
+    await settle(el);
+    expect(creates()[1]).toMatchObject({ day: 6, start: 1380, duration: 135 });
+  });
+
+  it("moves a block's start or end by dragging its top or bottom edge", async () => {
+    await mount();
+    layOutColumns();
+    const target = () => blocks().find((b) => b.textContent?.includes("Target"))!; // Wed 10-11
+    mouse(target().querySelector(".edge.bottom")!, "pointerdown", columnX(3), 11 * HOUR - 3);
+    mouse(scroller(), "pointermove", columnX(3), 12 * HOUR);
+    await settle(el);
+    expect(target().getAttribute("style")).toContain(`height:${2 * HOUR - 2}px`);
+    expect(target().textContent).toContain("10:00 – 12:00");
+    mouse(scroller(), "pointermove", columnX(3), 12.5 * HOUR);
+    mouse(scroller(), "pointerup", columnX(3), 12.5 * HOUR);
+    await settle(el);
+    expect(edgeSaves()).toEqual([
+      expect.objectContaining({
+        block_id: "b_target",
+        changes: { day: 2, start: 600, duration: 150 },
+      }),
+    ]);
+    // Shown with its new times while saving, and not opened in the editor.
+    expect(target().getAttribute("style")).toContain(`height:${2.5 * HOUR - 2}px`);
+    expect(editor()).toBeNull();
+
+    // Morning's start, Monday 06:00, back to Sunday 22:00.
+    const morning = blocks().find((b) => b.textContent?.includes("Morning"))!;
+    mouse(morning.querySelector(".edge.top")!, "pointerdown", columnX(1), 6 * HOUR + 2);
+    mouse(scroller(), "pointermove", columnX(0), 22 * HOUR);
+    mouse(scroller(), "pointerup", columnX(0), 22 * HOUR);
+    await settle(el);
+    expect(edgeSaves()[1]).toMatchObject({
+      block_id: "b_morning",
+      changes: { day: 6, start: 1320, duration: 600 },
+    });
+  });
+
+  it("selects a block when its edge is clicked, and edits the draft if it has unsaved changes", async () => {
+    await mount();
+    layOutColumns();
+    const edge = () =>
+      blocks()
+        .find((b) => b.textContent?.includes("Target"))!
+        .querySelector(".edge.bottom")!;
+    mouse(edge(), "pointerdown", columnX(3), 11 * HOUR - 3);
+    mouse(scroller(), "pointerup", columnX(3), 11 * HOUR - 3);
+    await settle(el);
+    const ed = editor()!;
+    expect(ed._draft.id).toBe("b_target");
+
+    shadow(ed).querySelector<HTMLButtonElement>('.swatch[aria-label="#33b679"]')!.click();
+    await settle(el);
+    mouse(edge(), "pointerdown", columnX(3), 11 * HOUR - 3);
+    mouse(scroller(), "pointermove", columnX(3), 12 * HOUR);
+    mouse(scroller(), "pointerup", columnX(3), 12 * HOUR);
+    await settle(el);
+    expect(edgeSaves()).toHaveLength(0);
+    expect(ed._draft).toMatchObject({ color: "#33b679", start: 600, duration: 120 });
+
+    // Esc cancels a drag.
+    mouse(edge(), "pointerdown", columnX(3), 12 * HOUR - 3);
+    mouse(scroller(), "pointermove", columnX(3), 14 * HOUR);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    mouse(scroller(), "pointerup", columnX(3), 14 * HOUR);
+    await settle(el);
+    expect(ed._draft.duration).toBe(120);
+  });
+
+  it("shows one day at a time after clicking a day's name", async () => {
+    await mount();
+    const days = () =>
+      [...shadow(weekView()).querySelectorAll<HTMLElement>(".col")].map((c) => c.dataset.day);
+    const press = async (label: string) => {
+      shadow(weekView()).querySelector<HTMLButtonElement>(`[aria-label^="${label}"]`)!.click();
+      await settle(el);
+    };
+    const wheel = async (init: WheelEventInit) => {
+      const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init });
+      // happy-dom's WheelEvent leaves out the modifier keys.
+      Object.defineProperty(event, "shiftKey", { value: !!init.shiftKey });
+      scroller().dispatchEvent(event);
+      await settle(el);
+    };
+
+    await press("Wednesday");
+    expect(days()).toEqual(["2"]);
+    expect(shadow(weekView()).querySelector(".day-head")!.textContent).toContain("Wednesday");
+    expect(blocks().map((b) => b.textContent)).toEqual([expect.stringContaining("Target")]);
+
+    await press("Next day");
+    expect(days()).toEqual(["3"]);
+    await wheel({ deltaY: 100, shiftKey: true }); // a mouse wheel notch
+    expect(days()).toEqual(["4"]);
+    await wheel({ deltaX: -100 }); // the way some browsers report Shift+wheel
+    expect(days()).toEqual(["3"]);
+    for (let i = 0; i < 4; i++) await wheel({ deltaX: 40 }); // one touchpad swipe
+    expect(days()).toEqual(["4"]);
+    await wheel({ deltaY: 100 }); // plain scrolling isn't taken
+    expect(days()).toEqual(["4"]);
+
+    // The week starts on Sunday, so the day before Sunday wraps around to Saturday.
+    await press("Next day"); // Saturday
+    await press("Next day"); // Sunday
+    await press("Previous day");
+    expect(days()).toEqual(["5"]);
+    await press("Next day");
+    await press("Next day");
+    expect(days()).toEqual(["0"]); // Sunday -> Monday
+
+    // It follows the selected block when that moves to another day.
+    await press("Next day");
+    await press("Next day");
+    expect(days()).toEqual(["2"]);
+    blocks()
+      .find((b) => b.textContent?.includes("Target"))!
+      .click();
+    await settle(el);
+    const day = shadow(editor()).querySelector<HTMLSelectElement>("select")!;
+    day.value = "4";
+    day.dispatchEvent(new Event("change"));
+    await settle(el);
+    expect(days()).toEqual(["4"]);
+
+    await press("Friday. Show the whole week");
+    expect(days()).toHaveLength(7);
+  });
+
+  it("starts with today on a phone, and swiping sideways changes the day", async () => {
+    setViewport(400);
+    const today = nowIn("UTC").day;
+    await mount((config) => {
+      config.blocks.push(block("b_today", { name: "Today", day: today, start: 300 }));
+    });
+    const col = () => shadow(weekView()).querySelector<HTMLElement>(".col")!;
+    const day = () => Number(col().dataset.day);
+    expect(shadow(weekView()).querySelectorAll(".col")).toHaveLength(1);
+    expect(day()).toBe(today);
+    expect(col().classList.contains("today")).toBe(true);
+
+    const swipe = async (target: Element, dx: number, dy = 0) => {
+      finger(target, "touchstart", 200, 300);
+      finger(target, "touchmove", 200 + dx / 2, 300 + dy / 2);
+      finger(target, "touchmove", 200 + dx, 300 + dy);
+      finger(target, "touchend", 200 + dx, 300 + dy);
+      await settle(el);
+    };
+
+    // Left shows the next day, right the previous one.
+    await swipe(col(), -100);
+    expect(day()).toBe((today + 1) % 7);
+    await swipe(col(), 100);
+    await swipe(col(), 100);
+    expect(day()).toBe((today + 6) % 7);
+    await swipe(col(), -100);
+    expect(day()).toBe(today);
+
+    // Scrolling up and down isn't a swipe.
+    await swipe(col(), -40, 160);
+    expect(day()).toBe(today);
+
+    // The day follows the finger, and goes back after a short swipe. One that ends on a
+    // block doesn't select it.
+    const target = blocks().find((b) => b.dataset.id === "b_today")!;
+    finger(target, "touchstart", 200, 300);
+    finger(target, "touchmove", 180, 302);
+    expect(col().style.transform).toBe("translateX(-20px)");
+    finger(target, "touchend", 180, 302);
+    target.click();
+    await settle(el);
+    expect(col().style.transform).toBe("");
+    expect(day()).toBe(today);
+    expect(editor()).toBeNull();
+
+    // The whole week is still a tap away.
+    buttonNamed(weekView(), "Week").click();
+    await settle(el);
+    expect(shadow(weekView()).querySelectorAll(".col")).toHaveLength(7);
+  });
+
+  it("shows the calendar on a phone while the eyedropper picks a block", async () => {
+    setViewport(400);
+    await mount();
+    buttonNamed(weekView(), "Week").click();
+    await settle(el);
+    await clickBlock("Target");
+    const pane = shadow(el).querySelector<HTMLElement>(".editor-pane")!;
+    const hidden = () => getComputedStyle(pane).visibility === "hidden";
+    expect(hidden()).toBe(false);
+
+    shadow(editor()).querySelector<HTMLButtonElement>('[aria-label^="Copy actions"]')!.click();
+    await settle(el);
+    expect(hidden()).toBe(true);
+
+    // Picking a block brings the editor back, with the copy in it.
+    await clickBlock("Morning");
+    await confirmChoice("Replace");
+    expect(hidden()).toBe(false);
+    expect(editor()!._draft.name).toBe("Morning");
+
+    // And so does cancelling.
+    shadow(editor()).querySelector<HTMLButtonElement>('[aria-label^="Copy actions"]')!.click();
+    await settle(el);
+    expect(hidden()).toBe(true);
+    buttonNamed(el, "Cancel").click();
+    await settle(el);
+    expect(hidden()).toBe(false);
   });
 
   it("copies actions and conditions with the eyedropper after confirming", async () => {
@@ -562,6 +888,35 @@ describe("punch-clock-panel", () => {
     expect(ed._draft.start).toBe(465);
   });
 
+  it("centers the time picker over the block editor", async () => {
+    await mount();
+    blocks()
+      .find((b) => b.textContent?.includes("Morning"))!
+      .click();
+    await settle(el);
+    const ed = editor()!;
+    ed.getBoundingClientRect = () =>
+      ({ left: 500, top: 56, right: 960, bottom: 756, width: 460, height: 700 }) as DOMRect;
+    const [start] = timeInputs(ed);
+    const picker = shadow(start).querySelector("pc-time-picker")!;
+    const dialog = shadow(picker).querySelector("dialog")!;
+    Object.defineProperty(dialog, "offsetWidth", { value: 328 });
+    Object.defineProperty(dialog, "offsetHeight", { value: 500 });
+    shadow(start).querySelector<HTMLButtonElement>(".field")!.click();
+    await settle(el);
+    expect(dialog.style.left).toBe("566px"); // 500 + (460 - 328) / 2
+    expect(dialog.style.top).toBe("156px"); // 56 + (700 - 500) / 2
+
+    // It stays inside the window.
+    buttonNamed(picker, "Cancel").click();
+    await settle(el);
+    ed.getBoundingClientRect = () =>
+      ({ left: 900, top: 0, right: 1360, bottom: 700, width: 460, height: 700 }) as DOMRect;
+    shadow(start).querySelector<HTMLButtonElement>(".field")!.click();
+    await settle(el);
+    expect(dialog.style.left).toBe(`${window.innerWidth - 328 - 8}px`);
+  });
+
   it("moves the block in the calendar as soon as its day or times change", async () => {
     await mount();
     blocks()
@@ -711,6 +1066,136 @@ describe("punch-clock-panel", () => {
       (s) => s.textContent,
     );
     expect(twelve).toContain("1 PM");
+  });
+
+  it("lists the entities the tab's blocks set first when adding a default value", async () => {
+    await mount();
+    shadow(el)
+      .querySelector("pc-tab-bar")!
+      .dispatchEvent(new CustomEvent("tab-action", { detail: { tabId: "t_1", action: "edit" } }));
+    await settle(el);
+    const dialog = shadow(el).querySelector("pc-tab-dialog")!;
+    buttonNamed(dialog, "Default value").click();
+    await settle(el);
+    const picker = shadow(shadow(dialog).querySelector("pc-action-editor")).querySelector(
+      "pc-entity-picker",
+    )!;
+    // The new default's entity list opens by itself, with the tab's entities on top.
+    const items = () =>
+      [...shadow(picker).querySelectorAll("li")].map((li) =>
+        li.classList.contains("heading")
+          ? `# ${li.textContent!.trim()}`
+          : li.querySelector(".id")!.textContent,
+      );
+    expect(items()).toEqual([
+      "# Set by this tab's blocks",
+      "climate.house",
+      "# Other entities",
+      "input_boolean.guests",
+    ]);
+
+    // Once an entity has a default, it's no longer suggested.
+    shadow(picker).querySelectorAll<HTMLLIElement>('li[role="option"]')[0]!.click();
+    await settle(el);
+    buttonNamed(dialog, "Default value").click();
+    await settle(el);
+    const second = shadow(
+      [...shadow(dialog).querySelectorAll("pc-action-editor")][1]!,
+    ).querySelector("pc-entity-picker")!;
+    expect(
+      [...shadow(second).querySelectorAll("li")].map((li) => li.textContent!.trim()),
+    ).not.toContain("Set by this tab's blocks");
+  });
+
+  it("duplicates a tab from its menu, turned off, and shows the copy", async () => {
+    await mount();
+    const bar = () => shadow(shadow(el).querySelector("pc-tab-bar"));
+    bar().querySelector<HTMLButtonElement>('[aria-label="Options for Week"]')!.click();
+    await settle(el);
+    [...bar().querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((b) => b.textContent?.trim() === "Duplicate tab")!
+      .click();
+    await settle(el);
+    expect(fake.calls.filter((c) => c.type === "punch_clock/tabs/duplicate")).toEqual([
+      expect.objectContaining({ tab_id: "t_1" }),
+    ]);
+    expect([...bar().querySelectorAll(".tab-button")].map((t) => t.textContent?.trim())).toEqual([
+      "Week",
+      "Week copy",
+      "Vacation",
+    ]);
+    expect(weekView().tabId).toBe("t_copy");
+    expect(blocks()).toHaveLength(4); // copies of Morning, Target and Night (two segments)
+    expect(shadow(el).querySelector(".banner")!.textContent).toContain(
+      'The "Week copy" tab is turned off',
+    );
+    expect(shadow(el).querySelector(".toast")!.textContent).toContain(
+      'Created "Week copy" with 3 blocks.',
+    );
+  });
+
+  it("filters the calendar by the entities the tab's blocks act on", async () => {
+    await mount((config) => {
+      const target = config.blocks.find((b) => b.id === "b_target")!;
+      target.actions = [
+        { id: "a_g", type: "entity", entity_id: "input_boolean.guests", settings: { state: "on" } },
+      ];
+      const night = config.blocks.find((b) => b.id === "b_night")!;
+      night.actions = [
+        {
+          id: "a_s",
+          type: "service",
+          service: "climate.set_temperature",
+          target: { entity_id: ["climate.house"] },
+          data: {},
+        },
+      ];
+    });
+    const filter = () => shadow(shadow(el).querySelector("pc-entity-filter"));
+    const chips = () =>
+      [...filter().querySelectorAll<HTMLButtonElement>(".chip-btn")].map((c) => {
+        const count = c.querySelector(".count")!.textContent;
+        const name = c.textContent!.replace(count!, "").trim();
+        return `${name} ${count}${c.getAttribute("aria-pressed") === "true" ? " (on)" : ""}`;
+      });
+    const toggle = async (name: string) => {
+      [...filter().querySelectorAll<HTMLButtonElement>(".chip-btn")]
+        .find((c) => c.textContent?.includes(name))!
+        .click();
+      await settle(el);
+    };
+    const shown = () =>
+      [...new Set(blocks().map((b) => b.querySelector(".name")!.textContent))].sort();
+
+    // House: Morning sets it and Night's service call targets it.
+    expect(chips()).toEqual(["Guests 1", "House 2"]);
+    expect(shown()).toEqual(["Morning", "Night", "Target"]);
+
+    await toggle("House");
+    expect(chips()).toEqual(["Guests 1", "House 2 (on)"]);
+    expect(shown()).toEqual(["Morning", "Night"]);
+    await toggle("Guests");
+    expect(shown()).toEqual(["Morning", "Night", "Target"]);
+    await toggle("House");
+    expect(shown()).toEqual(["Target"]);
+
+    // The block being edited stays in view.
+    await toggle("Guests");
+    await toggle("House");
+    blocks()
+      .find((b) => b.textContent?.includes("Morning"))!
+      .click();
+    await settle(el);
+    await toggle("Guests");
+    await toggle("House");
+    expect(shown()).toEqual(["Morning", "Target"]);
+
+    [...filter().querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent?.trim() === "Show all")!
+      .click();
+    await settle(el);
+    expect(chips()).toEqual(["Guests 1", "House 2"]);
+    expect(shown()).toEqual(["Morning", "Night", "Target"]);
   });
 
   it("duplicates a block to several days", async () => {
@@ -1023,6 +1508,74 @@ describe("punch-clock-panel", () => {
     expect(lastCall("blocks/delete_many")).toMatchObject({ block_ids: ["b_morning", "b_fri"] });
     expect(editor()).toBeNull();
     expect(blocks().some((b) => b.textContent?.includes("Morning"))).toBe(true); // the purple one
+  });
+
+  it("selects a block of the group by clicking its row", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Morning"); // Monday
+    const ed = editor()!;
+    shadow(ed).querySelector<HTMLButtonElement>('.swatch[aria-label="#33b679"]')!.click();
+    await settle(el);
+    const block = (id: string) =>
+      blocks().find((b) => b.dataset.id === id && !b.classList.contains("continuation"))!;
+    expect(block("b_morning").classList.contains("current")).toBe(true);
+
+    // The row's fields are for editing, not selecting.
+    whenRows(ed)[2]!.querySelector("select")!.click();
+    await settle(el);
+    expect(editor()!._draft.id).toBe("b_morning");
+
+    whenRows(ed)[2]!.click(); // Friday
+    await settle(el);
+    expect(editor()!._draft).toMatchObject({ id: "b_fri", color: "#33b679" });
+    expect(editor()!.dirty).toBe(true);
+    expect(whenRows(ed).map((r) => r.classList.contains("current"))).toEqual([false, false, true]);
+    expect(block("b_fri").classList.contains("current")).toBe(true);
+    expect(block("b_morning").classList.contains("current")).toBe(false);
+    expect(selected()).toHaveLength(3); // still the whole group
+  });
+
+  it("shows the day of a block selected from its row, and scrolls to it", async () => {
+    await mount(addMorningGroup);
+    await clickBlock("Morning"); // Monday
+    const scroller = shadow(weekView()).querySelector<HTMLElement>(".scroller")!;
+    const scrolls: ScrollToOptions[] = [];
+    scroller.scrollBy = ((options: ScrollToOptions) =>
+      scrolls.push(options)) as typeof scroller.scrollBy;
+    scroller.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 800, bottom: 400, width: 800, height: 400 }) as DOMRect;
+    Object.defineProperty(scroller, "clientHeight", { value: 400 });
+    Object.defineProperty(scroller, "clientWidth", { value: 800 });
+    const place = (id: string, top: number) => {
+      const el = blocks().find((b) => b.dataset.id === id)!;
+      el.getBoundingClientRect = () =>
+        ({ left: 300, right: 400, top, bottom: top + 96, width: 100, height: 96 }) as DOMRect;
+    };
+
+    // Wednesday's block is below the visible hours: scroll down to it.
+    place("b_wed", 900);
+    whenRows(editor()!)[1]!.click();
+    await settle(el);
+    expect(scrolls).toEqual([{ top: 900 + 96 - 400 + 16, left: 0, behavior: "smooth" }]);
+
+    // One already in view stays put.
+    place("b_fri", 100);
+    whenRows(editor()!)[2]!.click();
+    await settle(el);
+    expect(scrolls).toHaveLength(1);
+
+    // Showing one day, selecting a block on another day shows that day.
+    shadow(weekView()).querySelector<HTMLButtonElement>('[aria-label^="Monday"]')!.click();
+    await settle(el);
+    whenRows(editor()!)[0]!.click(); // Monday
+    await settle(el);
+    const days = () =>
+      [...shadow(weekView()).querySelectorAll<HTMLElement>(".col")].map((c) => c.dataset.day);
+    expect(days()).toEqual(["0"]);
+    whenRows(editor()!)[2]!.click(); // Friday
+    await settle(el);
+    expect(days()).toEqual(["4"]);
+    expect(blocks().map((b) => b.dataset.id)).toEqual(["b_night", "b_fri"]); // Night is Friday too
   });
 
   it("deletes one block of a group from its row, after asking", async () => {

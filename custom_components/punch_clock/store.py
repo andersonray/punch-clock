@@ -20,6 +20,7 @@ from .const import (
 )
 from .logic.model import Config, default_config, dump_config, parse_config
 from .logic.resolver import Key, key_from_str, key_to_str
+from .logic.units import convert_desired
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,8 +91,13 @@ class PunchClockStore:
 
         The mutation raises ConfigError without side effects if the edit is invalid.
         """
+        old_unit = self.config.settings.temperature_unit
         config, result = mutation(self.config)
         self.config = config
+        if (new_unit := config.settings.temperature_unit) != old_unit:
+            # The stored temperatures were converted; convert the last-applied values
+            # the same way so the engine doesn't see a transition.
+            self.async_set_last_desired(convert_desired(self.last_desired, old_unit, new_unit))
         self._config_store.async_delay_save(self._config_data, CONFIG_SAVE_DELAY)
         async_dispatcher_send(self.hass, SIGNAL_CONFIG_UPDATED)
         return result

@@ -15,6 +15,40 @@
   asking.
 - `punch_clock/blocks/update_many` and `punch_clock/blocks/delete_many` WebSocket commands, which
   change several blocks in one revision.
+- Clicking the background of a block's row in a group's When list selects that block: the
+  row and the block in the calendar are highlighted, the calendar scrolls to it, and the
+  one-day view switches to its day.
+- **Duplicate tab** in a tab's ⋮ menu copies the tab and all its blocks into a new tab right
+  after it. The copy starts turned off, so it changes nothing until you turn it on.
+- `punch_clock/tabs/duplicate` WebSocket command, which does that in one revision.
+- A row of entity chips above the calendar filters it: pick one or more entities to show only
+  the blocks that set them or target them with a service call.
+- Drag a block's top or bottom edge in the calendar to change its start or stop time.
+- While drawing out a new block or dragging a block's edge, move into the next or previous day's
+  column to make the block run past midnight.
+- Click a day's name in the calendar to show only that day, with arrows (or Shift+scroll) for
+  the previous and next day.
+- On a touch screen, swipe left or right in the one-day view for the next or previous day. On
+  a phone, the calendar opens on today instead of the whole week.
+- Adding a default value to a tab opens the entity list right away, with the entities that the
+  tab's blocks set (and that don't have a default yet) at the top.
+
+### Changed
+
+- The clock-dial time picker opens over the block editor instead of in the middle of the window,
+  so it's closer to the start and stop fields.
+
+### Fixed
+
+- Changing the temperature unit no longer re-sends the temperatures of running blocks, which
+  undid manual changes.
+- The tab dialog's description of default values now says that a running block in any tab
+  overrides them, not only the tab's own blocks.
+- Back-to-back blocks no longer run together in the calendar: a small gap separates them.
+- A block too short for both its name and times shows the whole name in the calendar and cuts
+  off the times, instead of cutting off the top of the name.
+- On a phone, the eyedropper left the block editor covering the calendar, so there was no
+  block to pick. The editor now steps aside until you pick one or cancel.
 
 ## 0.1.0 (2026-10-13)
 

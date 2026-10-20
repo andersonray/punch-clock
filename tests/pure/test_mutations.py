@@ -1,15 +1,17 @@
 import pytest
 
 from logic import mutations
-from logic.model import ConfigError, default_config
+from logic.model import Condition, ConfigError, default_config
 from logic.mutations import (
     LimitError,
     NotFoundError,
+    copy_name,
     create_blocks,
     create_tab,
     delete_block,
     delete_blocks,
     delete_tab,
+    duplicate_tab,
     reorder_tabs,
     update_block,
     update_blocks,
@@ -76,6 +78,81 @@ def test_delete_tab_deletes_its_blocks() -> None:
     config, _ = create_blocks(config, [{"tab_id": tab.id, "day": 0, "start": 0, "duration": 60}])
     config = delete_tab(config, tab.id)
     assert config.blocks == ()
+
+
+def test_duplicate_tab_copies_it_turned_off_with_its_blocks() -> None:
+    config = default_config()
+    other = config.tabs[0].id
+    config, tab = create_tab(
+        config,
+        {
+            "name": "Work",
+            "conditions": {
+                "items": [{"entity_id": "person.ray", "operator": "is", "value": "home"}]
+            },
+            "defaults": [{"entity_id": "climate.x", "settings": {"temperature": 18}}],
+        },
+    )
+    config = reorder_tabs(config, [tab.id, other])
+    item = {
+        "tab_id": tab.id,
+        "day": 1,
+        "start": 60,
+        "duration": 30,
+        "name": "Wake",
+        "actions": [{"entity_id": "climate.x", "settings": {"temperature": 21}}],
+    }
+    config, originals = create_blocks(config, [item, {**item, "day": 2}, {**item, "tab_id": other}])
+    revision = config.revision
+
+    config, (copy, blocks) = duplicate_tab(config, tab.id)
+    assert config.revision == revision + 1
+    assert [t.id for t in config.tabs] == [tab.id, copy.id, other]
+    assert (copy.name, copy.enabled) == ("Work copy", False)
+    condition = copy.conditions.items[0]
+    assert isinstance(condition, Condition)
+    assert condition.entity_id == "person.ray"
+    assert condition.id != tab.conditions.items[0].id
+    assert copy.conditions.id != tab.conditions.id
+    assert copy.defaults[0].settings == {"temperature": 18}
+    assert copy.defaults[0].id != tab.defaults[0].id
+
+    assert [(b.tab_id, b.day, b.name) for b in blocks] == [
+        (copy.id, 1, "Wake"),
+        (copy.id, 2, "Wake"),
+    ]
+    assert [b.seq for b in blocks] == [4, 5]
+    assert config.seq == 5
+    assert not {b.id for b in blocks} & {b.id for b in originals}
+    assert blocks[0].actions[0].id != originals[0].actions[0].id
+    assert config.blocks[:3] == tuple(originals)  # the originals are untouched
+
+    config, (again, _) = duplicate_tab(config, tab.id)
+    assert again.name == "Work copy 2"
+    assert [t.id for t in config.tabs] == [tab.id, again.id, copy.id, other]
+    with pytest.raises(NotFoundError):
+        duplicate_tab(config, "t_nope")
+
+
+def test_copy_names_are_unique_and_fit() -> None:
+    assert copy_name("Work", set()) == "Work copy"
+    assert copy_name("Work", {"Work copy", "Work copy 2"}) == "Work copy 3"
+    long = "x" * 64
+    assert copy_name(long, set()) == "x" * 59 + " copy"
+    assert copy_name(long, {"x" * 59 + " copy"}) == "x" * 57 + " copy 2"
+
+
+def test_duplicate_tab_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = default_config()
+    config, _ = create_blocks(
+        config, [{"tab_id": config.tabs[0].id, "day": 1, "start": 60, "duration": 30}]
+    )
+    monkeypatch.setattr(mutations, "MAX_BLOCKS", 1)
+    with pytest.raises(LimitError, match="blocks"):
+        duplicate_tab(config, config.tabs[0].id)
+    monkeypatch.setattr(mutations, "MAX_TABS", 1)
+    with pytest.raises(LimitError, match="tabs"):
+        duplicate_tab(config, config.tabs[0].id)
 
 
 def test_create_blocks_assigns_ids_and_seq() -> None:

@@ -50,6 +50,11 @@ export class PunchClockApi {
     return this.call("tabs/delete", { tab_id: tabId });
   }
 
+  /** Copy a tab and its blocks into a new tab, turned off, right after it. */
+  duplicateTab(tabId: string): Promise<{ tab: Tab; blocks: Block[] }> {
+    return this.call("tabs/duplicate", { tab_id: tabId });
+  }
+
   reorderTabs(order: string[]): Promise<void> {
     return this.call("tabs/reorder", { order });
   }

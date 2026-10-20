@@ -4,12 +4,13 @@ Every function returns a new Config with ``revision`` incremented, or raises
 ConfigError (or a subclass) without changing anything.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import replace
 from typing import Any
 
 from .model import (
     MAX_BLOCKS,
+    MAX_NAME_LENGTH,
     MAX_TABS,
     Block,
     Config,
@@ -105,6 +106,54 @@ def delete_tab(config: Config, tab_id: str) -> Config:
         tabs=tuple(t for t in config.tabs if t.id != tab_id),
         blocks=tuple(b for b in config.blocks if b.tab_id != tab_id),
     )
+
+
+def copy_name(name: str, taken: Collection[str]) -> str:
+    """A name for a copy: "Name copy", or "Name copy 2" and so on if that's taken."""
+    n = 1
+    while True:
+        suffix = " copy" if n == 1 else f" copy {n}"
+        candidate = name[: MAX_NAME_LENGTH - len(suffix)].rstrip() + suffix
+        if candidate not in taken:
+            return candidate
+        n += 1
+
+
+def duplicate_tab(config: Config, tab_id: str) -> tuple[Config, tuple[Tab, list[Block]]]:
+    """Copy a tab and all its blocks into a new tab right after it.
+
+    The copy is turned off, so it changes nothing until it has been looked over and turned
+    on. Every ID in it is new.
+    """
+    old = _tab(config, tab_id)
+    blocks = [b for b in config.blocks if b.tab_id == tab_id]
+    if len(config.tabs) >= MAX_TABS:
+        raise LimitError("tabs", f"at most {MAX_TABS} tabs are allowed")
+    if len(config.blocks) + len(blocks) > MAX_BLOCKS:
+        raise LimitError("blocks", f"at most {MAX_BLOCKS} blocks are allowed")
+    name = copy_name(old.name, {t.name for t in config.tabs})
+    tab = parse_tab(
+        {**dump_tab(old), "name": name, "enabled": False},
+        "tab",
+        tab_id=new_id("t"),
+        fresh_ids=True,
+    )
+    seq = config.seq
+    copies: list[Block] = []
+    for block in blocks:
+        seq += 1
+        copies.append(
+            parse_block(
+                {**dump_block(block), "tab_id": tab.id},
+                "block",
+                block_id=new_id("b"),
+                seq=seq,
+                fresh_ids=True,
+            )
+        )
+    at = config.tabs.index(old) + 1
+    tabs = (*config.tabs[:at], tab, *config.tabs[at:])
+    return _bump(config, seq=seq, tabs=tabs, blocks=(*config.blocks, *copies)), (tab, copies)
 
 
 def reorder_tabs(config: Config, order: Sequence[str]) -> Config:

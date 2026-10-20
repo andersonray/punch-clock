@@ -13,6 +13,9 @@ export const snapFloor = (minute: number, step = SNAP_MINUTES): number =>
 export const snapCeil = (minute: number, step = SNAP_MINUTES): number =>
   Math.ceil(minute / step) * step;
 
+export const snapRound = (minute: number, step = SNAP_MINUTES): number =>
+  Math.round(minute / step) * step;
+
 /** Day indices in display order for a given first day of the week. */
 export function displayDays(weekStart: number): number[] {
   return Array.from({ length: 7 }, (_, i) => (weekStart + i) % 7);
