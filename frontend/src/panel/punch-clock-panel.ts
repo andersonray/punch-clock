@@ -668,8 +668,13 @@ export class PunchClockPanel extends LitElement {
     const tabState = tab ? this._status?.tabs[tab.id] : undefined;
     if (this._picking) {
       return html`<div class="banner info">
-        Click the block to copy from. Its name, color, actions and conditions replace this block's,
-        which puts the two in one group if they're in the same tab. Press Esc to cancel.
+        <span>
+          Choose the block to copy from.
+          <span class="hide-narrow">
+            Its name, color, actions and conditions replace this block's, which puts the two in one
+            group if they're in the same tab. Press Esc to cancel.
+          </span>
+        </span>
         <button class="btn text" @click=${() => (this._picking = false)}>Cancel</button>
       </div>`;
     }
@@ -838,7 +843,10 @@ export class PunchClockPanel extends LitElement {
                   @dblclick=${() =>
                     this.savePrefs({ ...this._prefs, editorWidth: DEFAULT_PREFS.editorWidth })}
                 ></div>
-                <div class="editor-pane" style="--editor-width:${this._prefs.editorWidth}px">
+                <div
+                  class="editor-pane ${this._picking ? "picking" : ""}"
+                  style="--editor-width:${this._prefs.editorWidth}px"
+                >
                   <pc-block-editor
                     .hass=${this.hass}
                     .block=${selected}
@@ -1076,6 +1084,13 @@ export class PunchClockPanel extends LitElement {
           border-left: none;
           padding-top: env(safe-area-inset-top, 0);
           background: var(--pc-card);
+        }
+        /*
+         * The editor covers the calendar, so it steps aside while the eyedropper is on. Hidden
+         * rather than not displayed, which could lose where it was scrolled to.
+         */
+        .editor-pane.picking {
+          visibility: hidden;
         }
       }
       @media (max-width: 600px) {

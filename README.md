@@ -170,7 +170,8 @@ when they're set. Changing the unit converts the temperatures already in your sc
 ### On a phone
 
 The calendar opens on today. Swipe left or right for the next or previous day, or tap **Week**
-to see the whole week, which scrolls sideways. The editor takes up the whole screen.
+to see the whole week, which scrolls sideways. The editor takes up the whole screen; its
+eyedropper steps aside so you can tap the block to copy from, and comes back once you have.
 
 <p>
   <img src="docs/images/phone-day.png" width="300" alt="The one-day view on a phone">

@@ -47,6 +47,8 @@
 - Back-to-back blocks no longer run together in the calendar: a small gap separates them.
 - A block too short for both its name and times shows the whole name in the calendar and cuts
   off the times, instead of cutting off the top of the name.
+- On a phone, the eyedropper left the block editor covering the calendar, so there was no
+  block to pick. The editor now steps aside until you pick one or cancel.
 
 ## 0.1.0 (2026-10-13)
 

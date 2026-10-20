@@ -625,6 +625,35 @@ describe("punch-clock-panel", () => {
     expect(shadow(weekView()).querySelectorAll(".col")).toHaveLength(7);
   });
 
+  it("shows the calendar on a phone while the eyedropper picks a block", async () => {
+    setViewport(400);
+    await mount();
+    buttonNamed(weekView(), "Week").click();
+    await settle(el);
+    await clickBlock("Target");
+    const pane = shadow(el).querySelector<HTMLElement>(".editor-pane")!;
+    const hidden = () => getComputedStyle(pane).visibility === "hidden";
+    expect(hidden()).toBe(false);
+
+    shadow(editor()).querySelector<HTMLButtonElement>('[aria-label^="Copy actions"]')!.click();
+    await settle(el);
+    expect(hidden()).toBe(true);
+
+    // Picking a block brings the editor back, with the copy in it.
+    await clickBlock("Morning");
+    await confirmChoice("Replace");
+    expect(hidden()).toBe(false);
+    expect(editor()!._draft.name).toBe("Morning");
+
+    // And so does cancelling.
+    shadow(editor()).querySelector<HTMLButtonElement>('[aria-label^="Copy actions"]')!.click();
+    await settle(el);
+    expect(hidden()).toBe(true);
+    buttonNamed(el, "Cancel").click();
+    await settle(el);
+    expect(hidden()).toBe(false);
+  });
+
   it("copies actions and conditions with the eyedropper after confirming", async () => {
     await mount();
     blocks()
