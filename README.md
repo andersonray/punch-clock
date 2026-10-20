@@ -3,7 +3,7 @@
 A weekly scheduler for [Home Assistant](https://www.home-assistant.io/) that sets entity values on
 a calendar.
 
-> **Status:** first version (0.1.0), in testing.
+> **Status:** early (0.x) release.
 
 ![The week calendar, with a group of morning blocks open in the editor](docs/images/screenshot.png)
 
@@ -38,9 +38,11 @@ rules are in [docs/semantics.md](docs/semantics.md).
 
 ## Installation
 
-### HACS (once the repository is public)
+### HACS
 
-1. In HACS, open the menu and choose **Custom repositories**. Add
+[![Open Punch Clock in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=andersonray&repository=punch-clock&category=integration)
+
+1. Use the button above, or in HACS open the menu, choose **Custom repositories**, and add
    `https://github.com/andersonray/punch-clock` with the **Integration** category.
 2. Install **Punch Clock**, then restart Home Assistant.
 3. Go to **Settings → Devices & services → Add integration** and choose **Punch Clock**.

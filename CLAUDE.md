@@ -8,8 +8,8 @@ Punch Clock is a Home Assistant **custom integration** (`custom_components/punch
 `punch_clock`) with its own **sidebar panel** (Lit + TypeScript in `frontend/`). It runs weekly
 schedules that set entity values. Users drag time blocks onto a week calendar; each block has entity
 actions and nested ALL/ANY conditions, and week "tabs" carry their own conditions and default
-values. It's distributed through HACS as a release zip (`hacs.json` uses `zip_release`). The repo
-(`andersonray/punch-clock`) is private for now, so HACS can't install it yet.
+values. It's distributed through HACS as a release zip (`hacs.json` uses `zip_release`), from the
+`andersonray/punch-clock` repo added as a custom repository.
 
 The runtime rules are specified in `docs/semantics.md`: activity, tab priority, the same-tab
 tiebreak, defaults, transitions, DST and temperature units. That file is the contract for

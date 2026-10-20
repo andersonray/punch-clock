@@ -64,7 +64,7 @@ or restart `scripts/develop`. After a frontend rebuild, a browser refresh is eno
 
 ## Testing on a real Home Assistant
 
-The repository is private for now, so HACS can't install it. Install it by hand:
+To try a change before it's released, install it by hand:
 
 1. Build the bundle (`npm run build` in `frontend/`), or download `punch_clock.zip` from a
    release (`gh release download -p punch_clock.zip`).
