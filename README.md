@@ -3,8 +3,6 @@
 A weekly scheduler for [Home Assistant](https://www.home-assistant.io/) that sets entity values on
 a calendar.
 
-> **Status:** early (0.x) release.
-
 ![The week calendar, with a group of morning blocks open in the editor](docs/images/screenshot.png)
 
 ## What it does

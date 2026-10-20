@@ -19,7 +19,7 @@ body:
     attributes:
       label: Versions
       description: Punch Clock version and Home Assistant version.
-      placeholder: Punch Clock 0.2.0, Home Assistant 2026.10.1
+      placeholder: Punch Clock 1.0.0, Home Assistant 2026.10.1
     validations:
       required: true
   - type: textarea
