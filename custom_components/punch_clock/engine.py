@@ -35,6 +35,8 @@ from homeassistant.util import dt as dt_util, slugify
 from .const import (
     DOMAIN,
     EVENT_APPLIED,
+    EVENT_LOGBOOK_ENTRY,
+    EVENT_PROBLEM,
     ISSUE_WRITE_BUDGET,
     MAX_ERRORS,
     MEDIA_PLAYER_ON_TIMEOUT,
@@ -49,8 +51,16 @@ from .const import (
 from .logic import actions
 from .logic.actions import ServiceCall
 from .logic.conditions import referenced
+from .logic.describe import (
+    TITLE,
+    entity_ids,
+    problem_message,
+    service_message,
+    source_data,
+    write_message,
+)
 from .logic.model import Config
-from .logic.resolver import SERVICE_PREFIX, SERVICE_SETTING, Key, Resolution, resolve
+from .logic.resolver import SERVICE_PREFIX, SERVICE_SETTING, Key, Resolution, Source, resolve
 from .logic.state import SPECIAL_STATES, StateView
 from .logic.timemath import boundaries, next_boundary, week_minute
 from .logic.transitions import Mode, plan_writes
@@ -144,6 +154,7 @@ class PunchClockEngine:
         if enabled:
             if not self._was_enabled and mode is Mode.NORMAL:
                 mode = Mode.REENABLE
+                reason = "enabled"
             desired = self.resolution.values()
             self._prune_pending(desired)
             writes = plan_writes(desired, self.store.last_desired, self._matches, mode)
@@ -248,28 +259,22 @@ class PunchClockEngine:
 
     @callback
     def _apply(self, writes: dict[str, dict[str, Any]], reason: str) -> None:
-        context = Context()
         for target, settings in writes.items():
             if target.startswith(SERVICE_PREFIX):
                 value = settings[SERVICE_SETTING]
                 if self._spend_budget(target):
                     call = actions.plan_service(value["service"], value["target"], value["data"])
-                    self._launch(target, [call], context, reason, settings)
+                    self._launch(target, [call], reason, settings)
                 continue
             state = self.lookup(target)
             if state is None or not state.available:
                 self._pending.setdefault(target, {}).update(settings)
                 continue
-            self._write_entity(target, settings, state, context, reason)
+            self._write_entity(target, settings, state, reason)
 
     @callback
     def _write_entity(
-        self,
-        entity_id: str,
-        settings: dict[str, Any],
-        state: StateView,
-        context: Context,
-        reason: str,
+        self, entity_id: str, settings: dict[str, Any], state: StateView, reason: str
     ) -> None:
         result = actions.plan(
             entity_id, convert_settings(entity_id, settings, *self._units()), state
@@ -277,30 +282,81 @@ class PunchClockEngine:
         for key, why in result.skipped:
             self._record(entity_id, f"{key} skipped: {why}")
         if result.calls and self._spend_budget(entity_id):
-            self._launch(entity_id, result.calls, context, reason, settings)
+            sent = {k: v for k, v in settings.items() if k not in result.unsent}
+            self._launch(entity_id, result.calls, reason, sent)
 
     @callback
     def _launch(
-        self,
-        target: str,
-        calls: list[ServiceCall],
-        context: Context,
-        reason: str,
-        settings: dict[str, Any],
+        self, target: str, calls: list[ServiceCall], reason: str, settings: dict[str, Any]
     ) -> None:
+        """Record a write in Activity and announce it, then make its service calls.
+
+        Each write gets a context of its own, shared by its Activity entry, its event
+        and its service calls. The entry comes first, so Activity doesn't credit the
+        resulting state changes to the bare service call.
+        """
+        context = Context()
+        data = self._applied_data(target, settings, reason)
+        if data["service"]:
+            targets = [self._name(i) for i in entity_ids(data["target"])]
+            message = service_message(data["service"], targets, data["sources"], reason)
+            self._log(TITLE, message, None, context)
+        else:
+            unit = data["temperature_unit"]
+            message = write_message(target, settings, unit, data["sources"], reason)
+            self._log(data["name"] or target, message, target, context)
+        self.hass.bus.async_fire(EVENT_APPLIED, data, context=context)
         self.hass.async_create_task(
-            self._async_execute(target, calls, context, reason, settings),
-            f"{DOMAIN} apply {target}",
+            self._async_execute(target, calls, context), f"{DOMAIN} apply {target}"
         )
 
-    async def _async_execute(
-        self,
-        target: str,
-        calls: list[ServiceCall],
-        context: Context,
-        reason: str,
-        settings: dict[str, Any],
+    @callback
+    def _log(
+        self, name: str, message: str, entity_id: str | None, context: Context | None = None
     ) -> None:
+        """Add an entry to Home Assistant's Activity view (the logbook).
+
+        An entry with an ``entity_id`` also shows in that entity's own Activity, which
+        HA only allows for logbook entries (not for an integration's own events).
+        """
+        data = {"name": name, "message": message, "domain": DOMAIN}
+        if entity_id is not None:
+            data["entity_id"] = entity_id
+        self.hass.bus.async_fire(EVENT_LOGBOOK_ENTRY, data, context=context)
+
+    @callback
+    def _name(self, entity_id: str) -> str:
+        state = self.hass.states.get(entity_id)
+        return state.name if state is not None else entity_id
+
+    @callback
+    def _applied_data(self, target: str, settings: dict[str, Any], reason: str) -> dict[str, Any]:
+        """The punch_clock_applied event data; see docs/semantics.md."""
+        config = self.store.config
+        by_source: dict[Source, list[str]] = {}
+        for key in settings:
+            desired = self.resolution.desired.get((target, key))
+            if desired is not None:
+                by_source.setdefault(desired.source, []).append(key)
+        data = self._target_data(target)
+        if target.startswith(SERVICE_PREFIX):
+            value = settings[SERVICE_SETTING]
+            data.update(target=value["target"], service_data=value["data"])
+        else:
+            data.update(settings=settings, temperature_unit=config.settings.temperature_unit)
+        data["sources"] = [source_data(config, s, keys) for s, keys in by_source.items()]
+        data["reason"] = reason
+        return data
+
+    @callback
+    def _target_data(self, target: str) -> dict[str, Any]:
+        if target.startswith(SERVICE_PREFIX):
+            service = target.removeprefix(SERVICE_PREFIX).split("|", 1)[0]
+            return {"entity_id": None, "name": None, "service": service}
+        state = self.hass.states.get(target)
+        return {"entity_id": target, "name": state.name if state else None, "service": None}
+
+    async def _async_execute(self, target: str, calls: list[ServiceCall], context: Context) -> None:
         failed = False
         for index, call in enumerate(calls):
             try:
@@ -322,17 +378,6 @@ class PunchClockEngine:
                 calls
             ) - 1:
                 await self._async_wait_until_on(target)
-        is_service = target.startswith(SERVICE_PREFIX)
-        self.hass.bus.async_fire(
-            EVENT_APPLIED,
-            {
-                "entity_id": None if is_service else target,
-                "service": settings[SERVICE_SETTING]["service"] if is_service else None,
-                "settings": None if is_service else settings,
-                "reason": reason,
-            },
-            context=context,
-        )
         if failed:
             async_dispatcher_send(self.hass, SIGNAL_STATUS_UPDATED)
 
@@ -371,7 +416,7 @@ class PunchClockEngine:
         if still and state is not None and state.available:
             todo = {k: v for k, v in still.items() if not self._matches((entity_id, k), v)}
             if todo:
-                self._write_entity(entity_id, todo, state, Context(), "available")
+                self._write_entity(entity_id, todo, state, "available")
         self._update_tracking()
         async_dispatcher_send(self.hass, SIGNAL_STATUS_UPDATED)
 
@@ -416,6 +461,12 @@ class PunchClockEngine:
         self._errors.appendleft(
             {"time": dt_util.utcnow().isoformat(), "entity_id": target, "message": message}
         )
+        problem = {**self._target_data(target), "message": message}
+        if problem["service"]:
+            self._log(TITLE, problem_message(message, problem["service"]), None)
+        else:
+            self._log(problem["name"] or target, problem_message(message), target)
+        self.hass.bus.async_fire(EVENT_PROBLEM, problem)
 
     # ------------------------------------------------------------------ status
 

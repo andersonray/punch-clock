@@ -9,7 +9,7 @@ Temperatures are stored in the schedule's unit (°C or °F, chosen in Punch Cloc
 and converted to Home Assistant's unit before writing (see
 [semantics](semantics.md#temperature-units)). Then values are clamped to the entity's current
 min/max and rounded to its step. Values for option lists (modes, presets, sources, ...) that the entity doesn't
-currently offer are skipped, and the skip is reported in the panel's status.
+currently offer are skipped and reported as a problem, in the panel's status and in Activity.
 
 The source of truth is `DOMAIN_KEYS` in
 [`logic/actions.py`](../custom_components/punch_clock/logic/actions.py). The panel's
@@ -56,8 +56,11 @@ editor mirrors it in [`capabilities.ts`](../frontend/src/logic/capabilities.ts).
 
 ## Combination rules
 
+Keys left out by these rules are expected, so they aren't reported as problems
+(`PlanResult.superseded` rather than `skipped`).
+
 - **Off wins.** `state: off` (or climate `hvac_mode: off`) sends only the turn-off
-  call. Every other key in that write is skipped.
+  call. Every other key in that write is left out.
 - **Climate.** `set_hvac_mode` is sent first, then preset, temperature, fan, swing and
   humidity. If both `temperature` and `temp_range` are set, the range is used in
   `heat_cool` mode and the single temperature in every other mode.

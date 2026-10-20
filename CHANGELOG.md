@@ -15,6 +15,10 @@
   asking.
 - `punch_clock/blocks/update_many` and `punch_clock/blocks/delete_many` WebSocket commands, which
   change several blocks in one revision.
+- Home Assistant's Activity view records everything Punch Clock sets, with the block or tab
+  default it came from and why, plus any problem it runs into. The entries also show in each
+  entity's own Activity.
+- `punch_clock_applied` and `punch_clock_problem` events for automations.
 - Clicking the background of a block's row in a group's When list selects that block: the
   row and the block in the calendar are highlighted, the calendar scrolls to it, and the
   one-day view switches to its day.
@@ -35,6 +39,8 @@
 
 ### Changed
 
+- Values left out by a combination rule (for example, off wins over a temperature) are no
+  longer reported as problems.
 - The clock-dial time picker opens over the block editor instead of in the middle of the window,
   so it's closer to the start and stop fields.
 

@@ -23,6 +23,10 @@ def skipped(entity_id: str, **settings: Any) -> list[str]:
     return [key for key, _ in plan(entity_id, settings, ENTITIES[entity_id]).skipped]
 
 
+def superseded(entity_id: str, **settings: Any) -> list[str]:
+    return [key for key, _ in plan(entity_id, settings, ENTITIES[entity_id]).superseded]
+
+
 # --- validation ---------------------------------------------------------------
 
 
@@ -77,7 +81,11 @@ def test_climate_off_suppresses_everything_else() -> None:
     assert calls("climate.hvac", hvac_mode="off", temperature=20) == [
         ("set_hvac_mode", {"hvac_mode": "off"})
     ]
-    assert skipped("climate.hvac", hvac_mode="off", temperature=20) == ["temperature"]
+    # Off wins by design, so the temperature is superseded, not a problem.
+    assert superseded("climate.hvac", hvac_mode="off", temperature=20) == ["temperature"]
+    assert skipped("climate.hvac", hvac_mode="off", temperature=20) == []
+    result = plan("climate.hvac", {"hvac_mode": "off", "temperature": 20}, ENTITIES["climate.hvac"])
+    assert result.unsent == {"temperature"}
 
 
 def test_climate_temperature_clamped_and_stepped() -> None:
@@ -160,7 +168,7 @@ def test_light_kelvin_beats_rgb() -> None:
     assert calls("light.living_room", color_temp_kelvin=2700, rgb_color=[255, 0, 0]) == [
         ("turn_on", {"color_temp_kelvin": 2700})
     ]
-    assert skipped("light.living_room", color_temp_kelvin=2700, rgb_color=[255, 0, 0]) == [
+    assert superseded("light.living_room", color_temp_kelvin=2700, rgb_color=[255, 0, 0]) == [
         "rgb_color"
     ]
 
