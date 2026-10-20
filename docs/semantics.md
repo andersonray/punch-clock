@@ -12,8 +12,8 @@ This document defines exactly what Punch Clock does at runtime. The pure logic i
 - **Action**: either an *entity action* (an entity plus the settings to apply, such as
   `{"hvac_mode": "heat", "temperature": 68}`), or a *service action* (a raw service call
   with a target and data).
-- **Default values**: entity actions on a tab that apply when no active block in that tab
-  sets the same entity and setting.
+- **Default values**: entity actions on a tab that apply while the tab is active and no active
+  block, in that tab or any other, sets the same entity and setting (see "Desired state").
 - **Setting key**: one unit of desired state for an entity, e.g. `climate.house` +
   `temperature`. Some keys are compound (`temp_range: {low, high}`) because their parts must
   be set together. See `settings-keys.md`.
@@ -138,7 +138,8 @@ Desired state is recomputed on:
   checking whether an entity already has the desired value, Punch Clock converts from the
   schedule's unit to Home Assistant's, then clamps and rounds to the entity's limits and step.
 - Changing `settings.temperature_unit` converts every stored temperature, rounded to one
-  decimal, so a schedule keeps its meaning.
+  decimal, so a schedule keeps its meaning. The remembered last-applied values are converted
+  the same way, so the unit change itself is not a transition and doesn't undo manual changes.
 - Conditions are not converted. They compare against the entity's raw values, which are in
   Home Assistant's unit.
 

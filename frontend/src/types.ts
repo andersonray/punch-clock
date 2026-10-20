@@ -118,6 +118,12 @@ export interface ExplainNode {
 /** Payload for creating a block (the server assigns id and seq). */
 export type BlockInput = Omit<Block, "id" | "seq">;
 
+/** One update in `blocks/update_many`. */
+export interface BlockUpdate {
+  block_id: string;
+  changes: Partial<BlockInput>;
+}
+
 // --- Home Assistant -------------------------------------------------------
 
 export interface HassEntity {

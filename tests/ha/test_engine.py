@@ -25,6 +25,7 @@ from custom_components.punch_clock.const import (
     STORAGE_KEY_CONFIG,
     STORAGE_KEY_RUNTIME,
 )
+from custom_components.punch_clock.logic.mutations import update_settings
 
 from helpers import (
     TAB,
@@ -130,6 +131,27 @@ async def test_fahrenheit_schedule_is_converted_for_a_celsius_home(
     )
     await hass.async_block_till_done()
     assert temps(calls) == [21.1]
+
+
+async def test_unit_change_is_not_a_transition(
+    hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
+) -> None:
+    hass.states.async_set(CLIMATE, "heat", CLIMATE_ATTRS)
+    hass_storage[STORAGE_KEY_CONFIG] = stored_config(
+        temperature_unit="°F", blocks=[climate_block(temperature=70)]
+    )
+    calls = record(hass, "climate.set_temperature")
+    entry = await setup_integration(hass)
+    await move_to(hass, freezer, START + timedelta(hours=1))
+    assert temps(calls) == [21.1]
+
+    # A manual change during the block survives switching the schedule to °C.
+    hass.states.async_set(CLIMATE, "heat", {**CLIMATE_ATTRS, "temperature": 23})
+    store = entry.runtime_data.store
+    store.async_mutate(lambda c: (update_settings(c, {"temperature_unit": "°C"}), None))
+    await hass.async_block_till_done()
+    assert temps(calls) == [21.1]
+    assert store.last_desired[(CLIMATE, "temperature")] == 21.1
 
 
 async def test_climate_mode_is_set_before_temperature(

@@ -49,10 +49,13 @@ def async_register(hass: HomeAssistant) -> None:
         ws_tabs_create,
         ws_tabs_update,
         ws_tabs_delete,
+        ws_tabs_duplicate,
         ws_tabs_reorder,
         ws_blocks_create,
         ws_blocks_update,
+        ws_blocks_update_many,
         ws_blocks_delete,
+        ws_blocks_delete_many,
         ws_conditions_evaluate,
         ws_reapply,
     ):
@@ -226,6 +229,23 @@ def ws_tabs_delete(
 
 
 @websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/tabs/duplicate", vol.Required("tab_id"): str}
+)
+@_handler
+def ws_tabs_duplicate(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    data: PunchClockData,
+) -> None:
+    """Copy a tab and its blocks into a new tab, turned off, right after it."""
+    tab, blocks = data.store.async_mutate(lambda c: mutations.duplicate_tab(c, msg["tab_id"]))
+    connection.send_result(
+        msg["id"], {"tab": dump_tab(tab), "blocks": [dump_block(b) for b in blocks]}
+    )
+
+
+@websocket_api.websocket_command(
     {vol.Required("type"): f"{DOMAIN}/tabs/reorder", vol.Required("order"): [str]}
 )
 @_handler
@@ -274,6 +294,27 @@ def ws_blocks_update(
 
 
 @websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/blocks/update_many",
+        vol.Required("updates"): [
+            vol.Schema({vol.Required("block_id"): str, vol.Required("changes"): dict})
+        ],
+    }
+)
+@_handler
+def ws_blocks_update_many(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    data: PunchClockData,
+) -> None:
+    """Update several blocks at once (all or nothing), e.g. every block of a group."""
+    updates = [(u["block_id"], u["changes"]) for u in msg["updates"]]
+    blocks = data.store.async_mutate(lambda c: mutations.update_blocks(c, updates))
+    connection.send_result(msg["id"], {"blocks": [dump_block(b) for b in blocks]})
+
+
+@websocket_api.websocket_command(
     {vol.Required("type"): f"{DOMAIN}/blocks/delete", vol.Required("block_id"): str}
 )
 @_handler
@@ -284,6 +325,20 @@ def ws_blocks_delete(
     data: PunchClockData,
 ) -> None:
     data.store.async_mutate(lambda c: (mutations.delete_block(c, msg["block_id"]), None))
+    connection.send_result(msg["id"], {})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/blocks/delete_many", vol.Required("block_ids"): [str]}
+)
+@_handler
+def ws_blocks_delete_many(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    data: PunchClockData,
+) -> None:
+    data.store.async_mutate(lambda c: (mutations.delete_blocks(c, msg["block_ids"]), None))
     connection.send_result(msg["id"], {})
 
 

@@ -68,6 +68,33 @@ async def test_tab_crud(client: Client, hass: HomeAssistant) -> None:
     assert hass.states.get("binary_sensor.punch_clock_vacation_active") is None
 
 
+async def test_tab_duplicate(client: Client, hass: HomeAssistant) -> None:
+    first = (await client.call("config/get"))["tabs"][0]
+    source = {"tab_id": first["id"], "day": 1, "start": 390, "duration": 120, "name": "Morning"}
+    originals = (await client.call("blocks/create", blocks=[source, {**source, "day": 3}]))[
+        "blocks"
+    ]
+
+    result = await client.call("tabs/duplicate", tab_id=first["id"])
+    tab = result["tab"]
+    assert (tab["name"], tab["enabled"]) == (f"{first['name']} copy", False)
+    assert [(b["tab_id"], b["day"], b["name"]) for b in result["blocks"]] == [
+        (tab["id"], 1, "Morning"),
+        (tab["id"], 3, "Morning"),
+    ]
+    config = await client.call("config/get")
+    assert [t["id"] for t in config["tabs"]] == [first["id"], tab["id"]]
+    assert len(config["blocks"]) == 4
+    assert {b["id"] for b in originals} < {b["id"] for b in config["blocks"]}
+    await hass.async_block_till_done()
+    # The copy's switch exists and is off, so the copy doesn't set anything yet.
+    assert hass.states.get("switch.punch_clock_schedule_copy_enabled").state == "off"
+
+    with pytest.raises(CommandError) as err:
+        await client.call("tabs/duplicate", tab_id="t_nope")
+    assert err.value.code == "not_found"
+
+
 async def test_block_crud(client: Client) -> None:
     tab_id = (await client.call("config/get"))["tabs"][0]["id"]
     source = {
@@ -92,6 +119,44 @@ async def test_block_crud(client: Client) -> None:
     assert config["revision"] >= 3
 
 
+async def test_block_group_update_and_delete(client: Client) -> None:
+    tab_id = (await client.call("config/get"))["tabs"][0]["id"]
+    source = {"tab_id": tab_id, "day": 1, "start": 390, "duration": 120, "name": "Morning"}
+    blocks = (await client.call("blocks/create", blocks=[source, {**source, "day": 3}, source]))[
+        "blocks"
+    ]
+    revision = (await client.call("config/get"))["revision"]
+
+    changes = {"name": "Early", "actions": [{"entity_id": "switch.x", "settings": {"state": "on"}}]}
+    updated = (
+        await client.call(
+            "blocks/update_many",
+            updates=[
+                {"block_id": blocks[0]["id"], "changes": {**changes, "start": 360}},
+                {"block_id": blocks[1]["id"], "changes": changes},
+            ],
+        )
+    )["blocks"]
+    assert [(b["name"], b["start"]) for b in updated] == [("Early", 360), ("Early", 390)]
+    config = await client.call("config/get")
+    assert config["revision"] == revision + 1
+
+    with pytest.raises(CommandError) as err:
+        await client.call(
+            "blocks/update_many",
+            updates=[
+                {"block_id": blocks[0]["id"], "changes": {"name": "Late"}},
+                {"block_id": "b_nope", "changes": {}},
+            ],
+        )
+    assert err.value.code == "not_found"
+    assert (await client.call("config/get"))["blocks"][0]["name"] == "Early"
+
+    await client.call("blocks/delete_many", block_ids=[blocks[0]["id"], blocks[2]["id"]])
+    config = await client.call("config/get")
+    assert [b["id"] for b in config["blocks"]] == [blocks[1]["id"]]
+
+
 @pytest.mark.parametrize(
     ("command", "payload", "code"),
     [
@@ -101,6 +166,8 @@ async def test_block_crud(client: Client) -> None:
         ("tabs/create", {"tab": {"name": "x", "color": "red"}}, "invalid_format"),
         ("settings/update", {"changes": {"week_start": 9}}, "invalid_format"),
         ("blocks/create", {"blocks": []}, "invalid_format"),
+        ("blocks/update_many", {"updates": []}, "invalid_format"),
+        ("blocks/delete_many", {"block_ids": ["b_nope"]}, "not_found"),
     ],
 )
 async def test_errors(client: Client, command: str, payload: dict[str, Any], code: str) -> None:

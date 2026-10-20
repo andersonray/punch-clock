@@ -3,6 +3,7 @@
 import type {
   Block,
   BlockInput,
+  BlockUpdate,
   Config,
   ExplainNode,
   Group,
@@ -49,6 +50,11 @@ export class PunchClockApi {
     return this.call("tabs/delete", { tab_id: tabId });
   }
 
+  /** Copy a tab and its blocks into a new tab, turned off, right after it. */
+  duplicateTab(tabId: string): Promise<{ tab: Tab; blocks: Block[] }> {
+    return this.call("tabs/duplicate", { tab_id: tabId });
+  }
+
   reorderTabs(order: string[]): Promise<void> {
     return this.call("tabs/reorder", { order });
   }
@@ -61,8 +67,17 @@ export class PunchClockApi {
     return this.call("blocks/update", { block_id: blockId, changes });
   }
 
+  /** Updates several blocks at once (all or nothing), such as every block of a group. */
+  updateBlocks(updates: BlockUpdate[]): Promise<{ blocks: Block[] }> {
+    return this.call("blocks/update_many", { updates });
+  }
+
   deleteBlock(blockId: string): Promise<void> {
     return this.call("blocks/delete", { block_id: blockId });
+  }
+
+  deleteBlocks(blockIds: string[]): Promise<void> {
+    return this.call("blocks/delete_many", { block_ids: blockIds });
   }
 
   evaluate(conditions: Group): Promise<ExplainNode> {

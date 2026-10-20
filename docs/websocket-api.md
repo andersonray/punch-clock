@@ -19,15 +19,22 @@ part is invalid.
 | `punch_clock/tabs/create` | `tab`: `{name, enabled?, conditions?, defaults?}` | `{tab}` (added as the last tab) |
 | `punch_clock/tabs/update` | `tab_id`, `changes` | `{tab}` |
 | `punch_clock/tabs/delete` | `tab_id` | `{}`, and the tab's blocks are deleted too |
+| `punch_clock/tabs/duplicate` | `tab_id` | `{tab, blocks}`: a copy of the tab and its blocks, turned off, named `<name> copy` (or `copy 2` and so on if taken), right after it, with new IDs throughout |
 | `punch_clock/tabs/reorder` | `order`: every tab ID | `{}` |
 | `punch_clock/blocks/create` | `blocks`: list of blocks without `id`/`seq` | `{blocks}` (all or nothing) |
 | `punch_clock/blocks/update` | `block_id`, `changes` | `{block}` |
+| `punch_clock/blocks/update_many` | `updates`: list of `{block_id, changes}` | `{blocks}` (all or nothing, one revision) |
 | `punch_clock/blocks/delete` | `block_id` | `{}` |
+| `punch_clock/blocks/delete_many` | `block_ids` | `{}` (all or nothing) |
 | `punch_clock/conditions/evaluate` | `conditions`: a condition group | an explanation tree: `{id, type, result, items, known?, actual?}` |
 | `punch_clock/reapply` | – | `{}`. Writes every desired value that an entity doesn't currently have. |
 
 The server assigns the IDs of new tabs and blocks. When blocks are created, the nested
 condition and action IDs are always regenerated, so duplicated blocks never share IDs.
+
+The server doesn't know about block groups. The panel treats blocks in one tab with the same
+name and color as a group, and saves or deletes a group with `blocks/update_many` or
+`blocks/delete_many`.
 
 ## Subscription
 

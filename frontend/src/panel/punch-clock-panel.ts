@@ -11,18 +11,32 @@ import type {
   Status,
   Tab,
 } from "../types";
-import { blockLabel, countConditions, emptyGroup, nextColor } from "../logic/model";
-import { MINUTES_PER_DAY, nowIn, uses24h } from "../logic/time";
+import {
+  blockGroup,
+  blockLabel,
+  countConditions,
+  emptyGroup,
+  entityCounts,
+  nextColor,
+  splitColor,
+  splitName,
+} from "../logic/model";
+import { MINUTES_PER_DAY, dayName, formatRange, nowIn, uses24h } from "../logic/time";
 import { themeTokens, controls } from "../styles";
 import { icon, mdiAlertCircleOutline, mdiCog, mdiMenu, mdiPlus } from "../icons";
 import type { TemperatureUnits } from "../logic/capabilities";
 import type { PcBlockEditor, BlockPreview } from "../components/pc-block-editor";
 import type { PcConfirmDialog } from "../components/pc-confirm-dialog";
-import type { CreateBlockDetail } from "../components/pc-week-view";
+import type { CreateBlockDetail, ResizeBlockDetail } from "../components/pc-week-view";
 import type { TabMenuAction } from "../components/pc-tab-bar";
 import { HOUR_HEIGHTS, type LocalPrefs } from "../components/pc-settings-dialog";
 
 declare const __PC_VERSION__: string;
+
+type BlockTimes = Pick<Block, "day" | "start" | "duration">;
+
+const sameTimes = (a: BlockTimes, b: BlockTimes): boolean =>
+  a.day === b.day && a.start === b.start && a.duration === b.duration;
 
 const PREFS_KEY = "punch-clock:prefs";
 const DEFAULT_PREFS: LocalPrefs = { hourHeight: 48, initialHour: -1, editorWidth: 460 };
@@ -72,7 +86,9 @@ export class PunchClockPanel extends LitElement {
     _loadError: { state: true },
     _prefs: { state: true },
     _preview: { state: true },
+    _savingTimes: { state: true },
     _resizing: { state: true },
+    _filter: { state: true },
   };
 
   declare hass: HomeAssistant;
@@ -91,15 +107,29 @@ export class PunchClockPanel extends LitElement {
   declare _toast: string;
   declare _loadError: string;
   declare _prefs: LocalPrefs;
-  /** Unsaved name/color of the block being edited, shown in the calendar right away. */
+  /** Unsaved name, color and times of the group being edited, shown in the calendar right away. */
   declare _preview: BlockPreview | null;
+  /** New times of blocks dragged in the calendar, shown until the saved config has them. */
+  declare _savingTimes: Record<string, BlockTimes>;
   declare _resizing: boolean;
+  /**
+   * Entities chosen in the filter row: the calendar shows only blocks acting on them. Kept
+   * across tabs; a tab whose blocks don't act on any of them shows everything.
+   */
+  declare _filter: string[];
 
   private readonly api = new PunchClockApi(() => this.hass);
   private unsubscribe: (() => Promise<void>) | null = null;
   private connecting = false;
   private toastTimer = 0;
-  private viewCache: { config: Config; preview: BlockPreview; result: Config } | null = null;
+  private viewCache: {
+    config: Config;
+    preview: BlockPreview | null;
+    savingTimes: Record<string, BlockTimes>;
+    result: Config;
+  } | null = null;
+  private selectionCache: string[] = [];
+  private filterCache: string[] = [];
   private unitsCache: TemperatureUnits = { schedule: "°C", ha: "°C" };
 
   constructor() {
@@ -118,7 +148,9 @@ export class PunchClockPanel extends LitElement {
     this._loadError = "";
     this._prefs = loadPrefs();
     this._preview = null;
+    this._savingTimes = {};
     this._resizing = false;
+    this._filter = [];
   }
 
   override connectedCallback(): void {
@@ -166,6 +198,15 @@ export class PunchClockPanel extends LitElement {
     }
     const config = event.config;
     this._config = config;
+    const saved = Object.entries(this._savingTimes).filter(([id, times]) => {
+      const block = config.blocks.find((b) => b.id === id);
+      return !block || sameTimes(block, times);
+    });
+    if (saved.length) {
+      const rest = { ...this._savingTimes };
+      for (const [id] of saved) delete rest[id];
+      this._savingTimes = rest;
+    }
     if (!config.tabs.some((t) => t.id === this._activeTabId)) {
       this._activeTabId = config.tabs[0]?.id ?? "";
     }
@@ -205,6 +246,13 @@ export class PunchClockPanel extends LitElement {
   }
 
   /** The schedule's temperature unit and Home Assistant's (a stable object for Lit). */
+  /** The chosen entities that the active tab's blocks act on, as a stable array for Lit. */
+  private activeFilter(counts: Map<string, number>): string[] {
+    const filter = this._filter.filter((entityId) => counts.has(entityId));
+    if (filter.join() !== this.filterCache.join()) this.filterCache = filter;
+    return this.filterCache;
+  }
+
   private get units(): TemperatureUnits {
     const schedule = this._config?.settings.temperature_unit ?? "°C";
     const ha = this._info?.temperature_unit ?? this.hass.config.unit_system?.temperature ?? "°C";
@@ -214,31 +262,60 @@ export class PunchClockPanel extends LitElement {
     return this.unitsCache;
   }
 
-  /** The config shown in the calendar: saved data plus the editor's unsaved changes. */
-  private viewConfig(config: Config): Config {
+  /** The editor's preview, if it's for the selected block. */
+  private get preview(): BlockPreview | null {
     const preview = this._preview;
-    if (!preview || preview.blockId !== this._selectedId) return config;
+    return preview?.whens.some((w) => w.id === this._selectedId) ? preview : null;
+  }
+
+  /**
+   * The config shown in the calendar: saved data plus the editor's unsaved changes and the
+   * times of blocks dragged in the calendar that are still being saved.
+   */
+  private viewConfig(config: Config): Config {
+    const preview = this.preview;
+    const savingTimes = this._savingTimes;
+    if (!preview && !Object.keys(savingTimes).length) return config;
     const cache = this.viewCache;
-    if (cache && cache.config === config && cache.preview === preview) return cache.result;
-    const { blockId, ...changes } = preview;
-    const result = {
-      ...config,
-      blocks: config.blocks.map((b) => (b.id === blockId ? { ...b, ...changes } : b)),
-    };
-    this.viewCache = { config, preview, result };
+    if (
+      cache &&
+      cache.config === config &&
+      cache.preview === preview &&
+      cache.savingTimes === savingTimes
+    ) {
+      return cache.result;
+    }
+    const whens = new Map(preview?.whens.map((w) => [w.id, w]));
+    const blocks = config.blocks.map((b) => {
+      const when = whens.get(b.id);
+      whens.delete(b.id);
+      const view = when ? { ...b, name: preview!.name, color: preview!.color, ...when } : b;
+      // Times dragged in the calendar are newer than the editor's copy of them.
+      return savingTimes[b.id] ? { ...view, ...savingTimes[b.id] } : view;
+    });
+    // Times added in the editor but not saved yet.
+    const template = config.blocks.find((b) => b.id === this._selectedId);
+    if (preview && template) {
+      const { name, color } = preview;
+      for (const when of whens.values()) blocks.push({ ...template, name, color, ...when });
+    }
+    const result = { ...config, blocks };
+    this.viewCache = { config, preview, savingTimes, result };
     return result;
   }
 
-  private setPreview(preview: BlockPreview): void {
-    const saved = this._config?.blocks.find((b) => b.id === preview.blockId);
-    const unchanged =
-      saved &&
-      saved.name === preview.name &&
-      saved.color === preview.color &&
-      saved.day === preview.day &&
-      saved.start === preview.start &&
-      saved.duration === preview.duration;
-    this._preview = unchanged ? null : preview;
+  /** The selected block and the rest of its group, as the editor has it. */
+  private get selectedIds(): string[] {
+    const block = this.selectedBlock;
+    const preview = this.preview;
+    const ids = preview
+      ? preview.whens.map((w) => w.id)
+      : block && this._config
+        ? blockGroup(this._config.blocks, block).map((b) => b.id)
+        : [];
+    // Keep the same array while the selection is the same, so the calendar doesn't re-render.
+    if (ids.join() !== this.selectionCache.join()) this.selectionCache = ids;
+    return this.selectionCache;
   }
 
   private savePrefs(prefs: LocalPrefs): void {
@@ -322,6 +399,7 @@ export class PunchClockPanel extends LitElement {
       ],
     });
     if (choice === "save") return editor.save();
+    if (choice === "discard") editor.discard();
     return choice === "discard";
   }
 
@@ -352,6 +430,23 @@ export class PunchClockPanel extends LitElement {
     if (result?.blocks[0]) this._selectedId = result.blocks[0].id;
   }
 
+  /**
+   * A block's edge was dragged in the calendar. Save the new times right away, unless the
+   * block's group is open in the editor with unsaved changes: then they join those changes.
+   * (A time added in the editor but not saved yet is always an unsaved change.)
+   */
+  private async resizeBlock(detail: ResizeBlockDetail): Promise<void> {
+    const { blockId, ...times } = detail;
+    const editor = this.editor;
+    if (editor?.dirty && editor.setTimes(blockId, times)) return;
+    this._savingTimes = { ...this._savingTimes, [blockId]: times };
+    const saved = await this.run(() => this.api.updateBlock(blockId, times));
+    if (!saved && this._savingTimes[blockId] === times) {
+      const { [blockId]: _failed, ...rest } = this._savingTimes;
+      this._savingTimes = rest;
+    }
+  }
+
   private async addBlockNow(): Promise<void> {
     const now = nowIn(this.timeZone);
     const start = Math.min(Math.ceil(now.minute / 60) * 60, MINUTES_PER_DAY - 60);
@@ -360,12 +455,20 @@ export class PunchClockPanel extends LitElement {
 
   private async selectBlock(blockId: string | null): Promise<void> {
     if (blockId === this._selectedId) return;
+    // A time added in the editor but not saved yet isn't a block to select.
+    if (blockId && !this._config?.blocks.some((b) => b.id === blockId)) return;
+    if (blockId && this.selectedIds.includes(blockId)) {
+      // Another block of the group being edited: the editor keeps any unsaved changes.
+      this._selectedId = blockId;
+      return;
+    }
     if (!(await this.okToLeaveEditor())) return;
     this._selectedId = blockId;
     this._preview = null;
     this._picking = false;
   }
 
+  /** Eyedropper: copy another block into the one being edited, which joins its group. */
   private async pickBlock(blockId: string): Promise<void> {
     const editor = this.editor;
     const target = editor?._draft;
@@ -373,34 +476,122 @@ export class PunchClockPanel extends LitElement {
     if (!editor || !target || !source || source.id === target.id) return;
     this._picking = false;
     const conditions = countConditions(target.conditions);
+    const others = editor._whens.length - 1;
     if (target.actions.length || conditions || target.name.trim()) {
       const ok = await this.confirmDialog.ask({
         heading: "Copy from another block?",
         text:
           `This replaces the name, color, ${target.actions.length} action(s) and ` +
-          `${conditions} condition(s) of "${blockLabel(target, this.hass.states)}" with copies ` +
-          `from "${blockLabel(source, this.hass.states)}". Save the block to keep the change.`,
+          `${conditions} condition(s) of "${blockLabel(target, this.hass.states)}"` +
+          (others ? ` and the ${others} other block(s) of its group` : "") +
+          ` with copies from "${blockLabel(source, this.hass.states)}". Save the block to keep ` +
+          `the change.`,
         confirmText: "Replace",
         destructive: true,
       });
       if (!ok) return;
     }
+    const wasGrouped = editor._whens.some((w) => w.id === source.id);
     editor.applyFrom(source);
-    this.toast(`Copied from "${blockLabel(source, this.hass.states)}". Save to keep it.`);
+    const label = blockLabel(source, this.hass.states);
+    this.toast(
+      !wasGrouped && editor._whens.some((w) => w.id === source.id)
+        ? `Grouped with "${label}". Save to keep it.`
+        : `Copied from "${label}". Save to keep it.`,
+    );
   }
 
-  private async deleteSelected(): Promise<void> {
+  /** Delete the selected block, or its whole group. */
+  private async deleteSelected(groupIds: string[]): Promise<void> {
     const block = this.selectedBlock;
-    if (!block) return;
+    const config = this._config;
+    if (!block || !config) return;
+    const current = this.editor?._draft ?? block;
+    const label = blockLabel(current, this.hass.states);
+    const group = groupIds.filter((id) => config.blocks.some((b) => b.id === id));
+    let ids: string[] = [];
+    if (group.length > 1) {
+      const when = `${dayName(current.day, this.language, "long")} ${formatRange(current.start, current.duration, this.use24h)}`;
+      const choice = await this.confirmDialog.choose({
+        heading: "Delete block?",
+        text:
+          `"${label}" is a group of ${group.length} blocks. Delete just the one on ${when}, ` +
+          `or all ${group.length}? This can't be undone.`,
+        choices: [
+          { value: "one", label: "Just this one", kind: "danger" },
+          { value: "all", label: `All ${group.length}`, kind: "danger" },
+        ],
+      });
+      if (choice === "one") ids = [block.id];
+      else if (choice === "all") ids = group;
+    } else {
+      const ok = await this.confirmDialog.ask({
+        heading: "Delete block?",
+        text: `Delete "${label}"? This can't be undone.`,
+        confirmText: "Delete",
+        destructive: true,
+      });
+      if (ok) ids = [block.id];
+    }
+    if (!ids.length) return;
+    const rest = group.filter((id) => !ids.includes(id));
+    if (rest.length) {
+      // Stay on the rest of the group, keeping any unsaved changes to it.
+      this.editor?.removeWhen(block.id);
+      this._selectedId = rest[0]!;
+    } else {
+      this._selectedId = null;
+    }
+    await this.run(() =>
+      ids.length === 1 ? this.api.deleteBlock(ids[0]!) : this.api.deleteBlocks(ids),
+    );
+  }
+
+  /**
+   * Split a block off from its group by numbering its name and giving it a new color, then
+   * edit it on its own. Unsaved changes to the group are saved or discarded first.
+   */
+  /**
+   * Delete one block of the group being edited (its row's delete button), after asking.
+   * The editor stays on the rest of the group, keeping any unsaved changes to it.
+   */
+  private async deleteWhen(blockId: string): Promise<void> {
+    const editor = this.editor;
+    const config = this._config;
+    const when = editor?._whens.find((w) => w.id === blockId);
+    if (!editor || !config || !when) return;
+    const label = blockLabel(editor._draft, this.hass.states);
+    const time = `${dayName(when.day, this.language, "long")} ${formatRange(when.start, when.duration, this.use24h)}`;
     const ok = await this.confirmDialog.ask({
       heading: "Delete block?",
-      text: `Delete "${blockLabel(block, this.hass.states)}"? This can't be undone.`,
+      text:
+        `Delete the "${label}" block on ${time}? The rest of the group stays. ` +
+        "This can't be undone.",
       confirmText: "Delete",
       destructive: true,
     });
     if (!ok) return;
-    await this.run(() => this.api.deleteBlock(block.id));
-    this._selectedId = null;
+    editor.removeWhen(blockId);
+    if (blockId === this._selectedId) {
+      const saved = editor._whens.find((w) => config.blocks.some((b) => b.id === w.id));
+      this._selectedId = saved?.id ?? null;
+    }
+    await this.run(() => this.api.deleteBlock(blockId));
+  }
+
+  private async splitBlock(blockId: string): Promise<void> {
+    this._picking = false;
+    if (!(await this.okToLeaveEditor())) return;
+    const config = this._config;
+    const block = config?.blocks.find((b) => b.id === blockId);
+    if (!config || !block) return;
+    if (blockGroup(config.blocks, block).length > 1) {
+      const name = splitName(config.blocks, block.tab_id, block.name);
+      const color = splitColor(config.blocks, block.tab_id, block.color);
+      if (!(await this.run(() => this.api.updateBlock(block.id, { name, color })))) return;
+    }
+    this._selectedId = block.id;
+    this._preview = null;
   }
 
   private async duplicate(blocks: BlockInput[]): Promise<void> {
@@ -433,6 +624,17 @@ export class PunchClockPanel extends LitElement {
       case "edit":
         this._tabDialog = { tab };
         break;
+      case "duplicate": {
+        const result = await this.run(() => this.api.duplicateTab(tabId));
+        if (!result) return;
+        const count = result.blocks.length;
+        this.toast(
+          `Created "${result.tab.name}" with ${count} block${count === 1 ? "" : "s"}. ` +
+            "It's turned off until you turn it on.",
+        );
+        await this.selectTab(result.tab.id);
+        break;
+      }
       case "toggle":
         await this.run(() => this.api.updateTab(tabId, { enabled: !tab.enabled }));
         break;
@@ -466,8 +668,13 @@ export class PunchClockPanel extends LitElement {
     const tabState = tab ? this._status?.tabs[tab.id] : undefined;
     if (this._picking) {
       return html`<div class="banner info">
-        Click the block to copy from. Its name, color, actions and conditions replace this block's.
-        Press Esc to cancel.
+        <span>
+          Choose the block to copy from.
+          <span class="hide-narrow">
+            Its name, color, actions and conditions replace this block's, which puts the two in one
+            group if they're in the same tab. Press Esc to cancel.
+          </span>
+        </span>
         <button class="btn text" @click=${() => (this._picking = false)}>Cancel</button>
       </div>`;
     }
@@ -572,6 +779,9 @@ export class PunchClockPanel extends LitElement {
   }
 
   private renderMain(config: Config, selected: Block | undefined) {
+    const view = this.viewConfig(config);
+    const counts = entityCounts(view.blocks.filter((b) => b.tab_id === this._activeTabId));
+    const filter = this.activeFilter(counts);
     return html`
       <pc-tab-bar
         .tabs=${config.tabs}
@@ -584,13 +794,22 @@ export class PunchClockPanel extends LitElement {
         @reorder=${(e: CustomEvent<{ order: string[] }>) => void this.run(() => this.api.reorderTabs(e.detail.order))}
       ></pc-tab-bar>
       ${this.renderBanner()}
+      <pc-entity-filter
+        .hass=${this.hass}
+        .counts=${counts}
+        .selected=${filter}
+        @filter-changed=${(e: CustomEvent<{ selected: string[] }>) =>
+          (this._filter = e.detail.selected)}
+      ></pc-entity-filter>
       <div class="main">
         <pc-week-view
           .hass=${this.hass}
-          .config=${this.viewConfig(config)}
+          .config=${view}
           .tabId=${this._activeTabId}
           .status=${this._status}
-          .selectedId=${this._selectedId}
+          .selectedIds=${this.selectedIds}
+          .currentId=${this._selectedId}
+          .filter=${filter}
           .picking=${this._picking}
           .use24h=${this.use24h}
           .language=${this.language}
@@ -598,6 +817,7 @@ export class PunchClockPanel extends LitElement {
           .hourHeight=${this._prefs.hourHeight}
           .initialHour=${this._prefs.initialHour}
           @create-block=${(e: CustomEvent<CreateBlockDetail>) => void this.createBlock(e.detail)}
+          @resize-block=${(e: CustomEvent<ResizeBlockDetail>) => void this.resizeBlock(e.detail)}
           @select-block=${(e: CustomEvent<{ blockId: string }>) => void this.selectBlock(e.detail.blockId)}
           @pick-block=${(e: CustomEvent<{ blockId: string }>) => void this.pickBlock(e.detail.blockId)}
           @background-click=${() => {
@@ -623,7 +843,10 @@ export class PunchClockPanel extends LitElement {
                   @dblclick=${() =>
                     this.savePrefs({ ...this._prefs, editorWidth: DEFAULT_PREFS.editorWidth })}
                 ></div>
-                <div class="editor-pane" style="--editor-width:${this._prefs.editorWidth}px">
+                <div
+                  class="editor-pane ${this._picking ? "picking" : ""}"
+                  style="--editor-width:${this._prefs.editorWidth}px"
+                >
                   <pc-block-editor
                     .hass=${this.hass}
                     .block=${selected}
@@ -635,10 +858,17 @@ export class PunchClockPanel extends LitElement {
                     .language=${this.language}
                     .picking=${this._picking}
                     @close-editor=${() => void this.selectBlock(null)}
-                    @delete-block=${() => void this.deleteSelected()}
+                    @delete-block=${(e: CustomEvent<{ blockIds: string[] }>) =>
+                      void this.deleteSelected(e.detail.blockIds)}
+                    @split-block=${(e: CustomEvent<{ blockId: string }>) =>
+                      void this.splitBlock(e.detail.blockId)}
+                    @delete-when=${(e: CustomEvent<{ blockId: string }>) =>
+                      void this.deleteWhen(e.detail.blockId)}
+                    @select-when=${(e: CustomEvent<{ blockId: string }>) =>
+                      void this.selectBlock(e.detail.blockId)}
                     @duplicate-block=${(e: CustomEvent<{ block: Block }>) => (this._duplicateSource = e.detail.block)}
                     @start-eyedropper=${() => (this._picking = !this._picking)}
-                    @preview-changed=${(e: CustomEvent<BlockPreview>) => this.setPreview(e.detail)}
+                    @preview-changed=${(e: CustomEvent<BlockPreview>) => (this._preview = e.detail)}
                   ></pc-block-editor>
                 </div>`
             : nothing
@@ -854,6 +1084,13 @@ export class PunchClockPanel extends LitElement {
           border-left: none;
           padding-top: env(safe-area-inset-top, 0);
           background: var(--pc-card);
+        }
+        /*
+         * The editor covers the calendar, so it steps aside while the eyedropper is on. Hidden
+         * rather than not displayed, which could lose where it was scrolled to.
+         */
+        .editor-pane.picking {
+          visibility: hidden;
         }
       }
       @media (max-width: 600px) {

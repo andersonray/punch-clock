@@ -17,6 +17,7 @@ import {
   feedbackEntities,
   friendlyName,
   newEntityAction,
+  tabEntities,
 } from "../logic/model";
 import type { TemperatureUnits } from "../logic/capabilities";
 import { controls } from "../styles";
@@ -104,6 +105,22 @@ export class PcTabDialog extends LitElement {
     if (changes.conditions) this.scheduleEvaluate();
   }
 
+  /** Entities this tab's blocks set that have no default yet: the likeliest to need one. */
+  private defaultSuggestions(): string[] {
+    if (!this.tab) return [];
+    const taken = new Set(this._draft.defaults.map((d) => d.entity_id));
+    return tabEntities(this.config, this.tab.id).filter((e) => !taken.has(e));
+  }
+
+  /** Add an empty default and open its entity list, which starts with the suggestions. */
+  private async addDefault(): Promise<void> {
+    this.patch({ defaults: [...this._draft.defaults, newEntityAction()] });
+    await this.updateComplete;
+    const added = [...this.renderRoot.querySelectorAll("pc-action-editor")].at(-1);
+    await added?.updateComplete;
+    added?.focus();
+  }
+
   private async save(): Promise<void> {
     const d = this._draft;
     const problems = [
@@ -139,6 +156,7 @@ export class PcTabDialog extends LitElement {
       this.patch({ defaults });
     };
     const feedback = feedbackEntities(d.conditions, this.config);
+    const suggestions = this.defaultSuggestions();
     return html`<pc-dialog
       wide
       .open=${this.open}
@@ -194,8 +212,9 @@ export class PcTabDialog extends LitElement {
         <section>
           <h3>Default values</h3>
           <p class="muted">
-            What an entity goes back to when none of this tab's blocks is setting it. Entities
-            without a default keep whatever value they have.
+            What an entity goes back to while this tab is running and no running block, in this tab
+            or any other, is setting it. If several running tabs have a default for the same value,
+            the leftmost tab's wins. Entities without a default keep whatever value they have.
           </p>
           ${d.defaults.map(
             (action, i) =>
@@ -204,15 +223,14 @@ export class PcTabDialog extends LitElement {
                 .hass=${this.hass}
                 .action=${action}
                 .units=${this.units}
+                .suggestions=${suggestions}
+                suggestionsLabel="Set by this tab's blocks"
                 @action-changed=${(e: CustomEvent<{ action: Action }>) => setDefault(i, e.detail.action)}
                 @remove=${() => setDefault(i, null)}
               ></pc-action-editor>`,
           )}
           <div>
-            <button
-              class="btn"
-              @click=${() => this.patch({ defaults: [...d.defaults, newEntityAction()] })}
-            >
+            <button class="btn" @click=${() => void this.addDefault()}>
               ${icon(mdiPlus, 18)} Default value
             </button>
           </div>

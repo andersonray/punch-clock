@@ -30,6 +30,7 @@ export class PcTimePicker extends LitElement {
     value: { type: Number },
     use24h: { type: Boolean },
     label: {},
+    anchor: { attribute: false },
     _hour: { state: true },
     _minute: { state: true },
     _view: { state: true },
@@ -44,6 +45,8 @@ export class PcTimePicker extends LitElement {
   declare use24h: boolean;
   /** What is being picked, e.g. "Start"; shown in the title. */
   declare label: string;
+  /** Element to center the dialog over, such as the block editor; the window if null. */
+  declare anchor: Element | null;
   declare _hour: number;
   declare _minute: number;
   declare _view: "hour" | "minute";
@@ -60,6 +63,7 @@ export class PcTimePicker extends LitElement {
     this.value = 0;
     this.use24h = false;
     this.label = "";
+    this.anchor = null;
     this._hour = 0;
     this._minute = 0;
     this._view = "hour";
@@ -88,15 +92,34 @@ export class PcTimePicker extends LitElement {
   }
 
   protected override updated(changed: PropertyValues<this>): void {
-    if (!changed.has("open")) return;
     const dialog = this.dialog;
     if (!dialog) return;
-    if (this.open && !dialog.open) {
+    if (changed.has("open") && this.open && !dialog.open) {
       dialog.showModal();
+      this.place(dialog);
       this.renderRoot.querySelector<SVGElement>(".dial")?.focus();
-    } else if (!this.open && dialog.open) {
+    } else if (changed.has("open") && !this.open && dialog.open) {
       dialog.close();
+    } else if (changed.has("_mode") && dialog.open) {
+      this.place(dialog); // typing the time makes the dialog shorter
     }
+  }
+
+  /** Center the dialog over the anchor, inside the window, so the pointer has less far to go. */
+  private place(dialog: HTMLDialogElement): void {
+    const anchor = this.anchor?.getBoundingClientRect();
+    if (!anchor?.width) {
+      dialog.style.cssText = ""; // the browser centers a modal dialog in the window
+      return;
+    }
+    const gap = 8;
+    const within = (start: number, size: number, room: number) =>
+      Math.max(gap, Math.min(start, room - size - gap));
+    const width = dialog.offsetWidth;
+    const height = dialog.offsetHeight;
+    const left = within(anchor.left + (anchor.width - width) / 2, width, window.innerWidth);
+    const top = within(anchor.top + (anchor.height - height) / 2, height, window.innerHeight);
+    dialog.style.cssText = `margin:0;left:${left}px;top:${top}px;right:auto;bottom:auto`;
   }
 
   private setPm(pm: boolean): void {
