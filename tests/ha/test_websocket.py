@@ -2,7 +2,10 @@ from typing import Any
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.loader import async_get_integration
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
+
+from custom_components.punch_clock.const import DOMAIN
 
 from helpers import setup_integration
 
@@ -38,9 +41,9 @@ async def client(hass: HomeAssistant, hass_ws_client: WebSocketGenerator) -> Cli
     return Client(await hass_ws_client(hass))
 
 
-async def test_info_and_config(client: Client) -> None:
+async def test_info_and_config(client: Client, hass: HomeAssistant) -> None:
     info = await client.call("info")
-    assert info["version"] == "0.1.0"
+    assert info["version"] == str((await async_get_integration(hass, DOMAIN)).version)
     assert info["time_zone"] == "US/Pacific"
     config = await client.call("config/get")
     assert [t["name"] for t in config["tabs"]] == ["Schedule"]
