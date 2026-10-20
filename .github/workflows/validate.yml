@@ -20,8 +20,6 @@ jobs:
 
   hacs:
     runs-on: ubuntu-latest
-    # HACS validation needs a public repository. Remove this once the repo is public.
-    continue-on-error: true
     steps:
       - uses: hacs/action@main
         with:

@@ -150,8 +150,7 @@ Adding a per-domain setting means changing `actions.py` (validator, matcher, pla
 - Keep `import voluptuous as vol`. HA ≥ 2026.9 aliases it to probatio at runtime, and older
   versions use real voluptuous. Don't assert on validation error text in tests.
 - CI (`.github/workflows`): `ci.yml` runs lint, mypy, both pytest suites and the frontend checks
-  and build; `validate.yml` runs hassfest and the HACS action (non-blocking until the repo is
-  public and has a release).
+  and build; `validate.yml` runs hassfest and the HACS action.
 - Git: branch names use the `rca/` prefix. This repo's local `user.email` is the GitHub noreply
   address; don't change it.
 - Headless Chrome screenshots of the panel are a useful visual check. Note that headless windows
