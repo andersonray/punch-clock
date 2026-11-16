@@ -186,7 +186,9 @@ icon, names the entity, the block (with its tab, day and times) or tab default b
 and what went wrong. It goes to every phone unless you pick one, at high priority (pops up on
 the screen; on an iPhone it also breaks through Focus) unless you pick low, normal or critical
 (sounds like an alarm, even on silent). **Send a test notification** shows what it looks like.
-It's off by default. See [docs/semantics.md](docs/semantics.md#failure-notifications).
+Each failure is also listed in Punch Clock's own Activity, so filtering Activity by the Punch
+Clock device shows the history of values it couldn't set. It's off by default. See
+[docs/semantics.md](docs/semantics.md#failure-notifications).
 
 ### On a phone
 

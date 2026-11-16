@@ -209,6 +209,15 @@ Assistant app right away.
 
   Android fixes a channel's importance when the channel is created, so each of the first three
   priorities has its own channel. A channel's sound and pop-up can then be changed in the app's notification settings.
+- **Activity history:** each failure notification also adds an entry to Punch Clock's own
+  Activity, titled "Punch Clock", with the notification's text on one line and the entity ID
+  added: "Punch Clock · couldn't set Hall (climate.hall). Morning warm-up (Winter tab, Mon 06:30
+  to 08:00) wanted heat, 21 °C. climate.set_temperature failed: Unable to connect." The entry
+  belongs to the master switch, so it shows in the switch's Activity and when Activity is
+  filtered by the Punch Clock device. (The Activity panel turns a device into its entities.)
+  It's added whether or not a phone gets the notification, so the history stays complete. The
+  failing entity's own Activity is unchanged: it shows the problem entries described in
+  "Activity view and events", and nothing for a write that waits for it to be available.
 - A notification that can't be sent is logged as a warning. It isn't a problem, so it can't
   notify again.
 
@@ -228,6 +237,8 @@ logbook), which keeps entries as long as history (10 days by default).
   (Evening)".
 - **A problem** adds "Hall · Punch Clock had a problem: …", or for a service action "Punch
   Clock · had a problem with script.turn_on: …".
+- **A failure notification** adds "Punch Clock · couldn't set Hall (climate.hall). …" to the
+  master switch's Activity (see "Failure notifications").
 - Nothing is recorded when no write is needed: the entity already has the value, or a manual
   change is being respected.
 

@@ -23,6 +23,7 @@ from custom_components.punch_clock.const import STORAGE_KEY_CONFIG
 from helpers import entity_action, setup_integration, stored_config, tab
 
 CLIMATE = "climate.hall"
+MASTER = "switch.punch_clock_enabled"
 ATTRS = {
     "friendly_name": "Hall",
     "hvac_modes": ["off", "heat"],
@@ -84,9 +85,14 @@ def ours(entries: list[dict[str, Any]]) -> list[tuple[str, str]]:
 
 
 async def start(
-    hass: HomeAssistant, hass_storage: dict[str, Any], defaults: list[dict[str, Any]]
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    defaults: list[dict[str, Any]],
+    **settings: Any,
 ) -> None:
-    hass_storage[STORAGE_KEY_CONFIG] = stored_config(tabs=[tab(name="Winter", defaults=defaults)])
+    hass_storage[STORAGE_KEY_CONFIG] = stored_config(
+        tabs=[tab(name="Winter", defaults=defaults)], **settings
+    )
     hass.config.components.update({"frontend", "panel_custom"})
     assert await async_setup_component(hass, "logbook", {})
     await setup_integration(hass)
@@ -139,6 +145,33 @@ async def test_problems_show_in_activity(
     fake_climate(hass)
     await start(hass, hass_storage, [entity_action(CLIMATE, hvac_mode="cool")])
     problem = "hvac_mode skipped: 'cool' is not in the entity's hvac_modes"
+    assert ours(await activity(hass, hass_ws_client, [CLIMATE])) == [
+        ("Hall", f"Punch Clock had a problem: {problem}")
+    ]
+    # Failure notifications are off, so Punch Clock's own Activity has nothing.
+    assert ours(await activity(hass, hass_ws_client, [MASTER])) == []
+
+
+async def test_failures_show_in_punch_clocks_activity(
+    recorder_mock: Recorder,
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    hass.states.async_set(CLIMATE, "heat", ATTRS)
+    fake_climate(hass)
+    await start(
+        hass, hass_storage, [entity_action(CLIMATE, hvac_mode="cool")], notify_failures=True
+    )
+    problem = "hvac_mode skipped: 'cool' is not in the entity's hvac_modes"
+    failure = (
+        "Punch Clock",
+        f"couldn't set Hall (climate.hall). The default for Winter wanted cool. {problem}.",
+    )
+    # Filtering Activity by the Punch Clock device asks for its entities, the master switch
+    # among them, as filtering by the switch itself does.
+    assert ours(await activity(hass, hass_ws_client, [MASTER])) == [failure]
+    # The entity's own Activity keeps just its problem.
     assert ours(await activity(hass, hass_ws_client, [CLIMATE])) == [
         ("Hall", f"Punch Clock had a problem: {problem}")
     ]

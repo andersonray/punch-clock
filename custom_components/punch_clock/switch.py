@@ -8,7 +8,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import PunchClockConfigEntry, PunchClockData
-from .const import SIGNAL_CONFIG_UPDATED
+from .const import MASTER_SWITCH_SUFFIX, SIGNAL_CONFIG_UPDATED
 from .entity import PunchClockEntity, TabEntity, async_manage_tab_entities
 from .logic import mutations
 
@@ -40,7 +40,7 @@ class MasterSwitch(PunchClockEntity, _ConfigSwitch):
     _attr_translation_key = "enabled"
 
     def __init__(self, data: PunchClockData) -> None:
-        super().__init__(data, "master")
+        super().__init__(data, MASTER_SWITCH_SUFFIX)
 
     @property
     def is_on(self) -> bool:

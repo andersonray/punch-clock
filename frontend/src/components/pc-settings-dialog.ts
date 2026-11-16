@@ -148,7 +148,7 @@ export class PcSettingsDialog extends LitElement {
       </label>
       <span class="muted hint"
         >The notification names the entity, the block or tab default behind the value, and what went
-        wrong.</span
+        wrong. Each one is also listed in Punch Clock's Activity.</span
       >
       ${
         s.notify_failures

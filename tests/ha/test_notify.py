@@ -9,16 +9,21 @@ from typing import Any
 
 import pytest
 from freezegun.api import FrozenDateTimeFactory
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import Event, HomeAssistant, ServiceCall
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant_custom_component.common import (
+    async_capture_events,
+    async_fire_time_changed,
+)
 
-from custom_components.punch_clock.const import STORAGE_KEY_CONFIG
+from custom_components.punch_clock.const import EVENT_LOGBOOK_ENTRY, STORAGE_KEY_CONFIG
 
 from helpers import block, condition, entity_action, setup_integration, stored_config, tab
 
 START = datetime.fromisoformat("2026-10-12T14:00:00+00:00")  # Monday 07:00 PDT
 CLIMATE = "climate.hall"
+MASTER = "switch.punch_clock_enabled"
 CLIMATE_ATTRS = {
     "friendly_name": "Hall",
     "hvac_modes": ["off", "heat"],
@@ -75,6 +80,13 @@ def warm_up(settings: dict[str, Any] | None = None) -> dict[str, Any]:
     )
 
 
+def failures(entries: list[Event], entity_id: str = MASTER) -> list[tuple[str, str]]:
+    """(name, message) of the Activity entries on Punch Clock's master switch."""
+    return [
+        (e.data["name"], e.data["message"]) for e in entries if e.data.get("entity_id") == entity_id
+    ]
+
+
 async def test_off_by_default(
     hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
 ) -> None:
@@ -82,9 +94,16 @@ async def test_off_by_default(
     hass_storage[STORAGE_KEY_CONFIG] = stored_config(blocks=[warm_up()])
     fail(hass, "climate", "set_temperature")
     sent = phones(hass, "pixel")
+    entries = async_capture_events(hass, EVENT_LOGBOOK_ENTRY)
     await setup_integration(hass)
     await move_to(hass, freezer, START + timedelta(hours=1))
     assert sent == []
+    assert failures(entries) == []
+    # The problem is still in the entity's own Activity, after the write, as before.
+    assert failures(entries, CLIMATE) == [
+        ("Hall", "Punch Clock set 22 °C (b_1)"),
+        ("Hall", "Punch Clock had a problem: climate.set_temperature failed: device offline"),
+    ]
 
 
 async def test_failed_write_notifies_every_phone(
@@ -94,8 +113,19 @@ async def test_failed_write_notifies_every_phone(
     hass_storage[STORAGE_KEY_CONFIG] = stored_config(blocks=[warm_up()], notify_failures=True)
     fail(hass, "climate", "set_temperature")
     sent = phones(hass, "pixel", "tablet")
+    entries = async_capture_events(hass, EVENT_LOGBOOK_ENTRY)
     await setup_integration(hass)
     await move_to(hass, freezer, START + timedelta(hours=1))
+
+    # One entry in Punch Clock's Activity, and the problem in the entity's, as before.
+    assert failures(entries) == [
+        (
+            "Punch Clock",
+            "couldn't set Hall (climate.hall). b_1 (Week tab, Mon 08:00 to 09:00) wanted 22 °C. "
+            "climate.set_temperature failed: device offline.",
+        )
+    ]
+    assert len(failures(entries, CLIMATE)) == 2  # the write, then its problem
 
     assert sorted(service for service, _ in sent) == ["mobile_app_pixel", "mobile_app_tablet"]
     data = sent[0][1]
@@ -176,6 +206,7 @@ async def test_unavailable_entity_notifies_right_away(
     hass_storage[STORAGE_KEY_CONFIG] = stored_config(blocks=[warm_up()], notify_failures=True)
     ok(hass, "climate.set_temperature")
     sent = phones(hass, "pixel")
+    entries = async_capture_events(hass, EVENT_LOGBOOK_ENTRY)
     entry = await setup_integration(hass)
     await move_to(hass, freezer, START + timedelta(hours=1))
     assert [(data["title"], data["message"]) for _, data in sent] == [
@@ -185,12 +216,20 @@ async def test_unavailable_entity_notifies_right_away(
             "It's unavailable, so Punch Clock will set it when it's available again.",
         )
     ]
+    assert failures(entries) == [
+        (
+            "Punch Clock",
+            "couldn't set Hall (climate.hall). b_1 (Week tab, Mon 08:00 to 09:00) wanted 22 °C. "
+            "It's unavailable, so Punch Clock will set it when it's available again.",
+        )
+    ]
     # The write still waits for the entity, and is made without another notification.
     assert entry.runtime_data.engine.status()["pending"] == [CLIMATE]
     hass.states.async_set(CLIMATE, "heat", CLIMATE_ATTRS)
     await hass.async_block_till_done()
     assert entry.runtime_data.engine.status()["pending"] == []
     assert len(sent) == 1
+    assert len(failures(entries)) == 1
 
 
 async def test_missing_entity_notifies(
@@ -279,10 +318,26 @@ async def test_missing_phone_is_logged(
     )
     fail(hass, "climate", "set_temperature")
     sent = phones(hass, "pixel")
+    entries = async_capture_events(hass, EVENT_LOGBOOK_ENTRY)
     await setup_integration(hass)
     await move_to(hass, freezer, START + timedelta(hours=1))
     assert sent == []
     assert "notify.mobile_app_gone not found" in caplog.text
+    # Activity keeps the history even when no phone gets the notification.
+    assert len(failures(entries)) == 1
+
+
+async def test_activity_follows_a_renamed_master_switch(
+    hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
+) -> None:
+    hass.states.async_set(CLIMATE, "unavailable")
+    hass_storage[STORAGE_KEY_CONFIG] = stored_config(blocks=[warm_up()], notify_failures=True)
+    entries = async_capture_events(hass, EVENT_LOGBOOK_ENTRY)
+    await setup_integration(hass)
+    er.async_get(hass).async_update_entity(MASTER, new_entity_id="switch.schedules")
+    await hass.async_block_till_done()
+    await move_to(hass, freezer, START + timedelta(hours=1))
+    assert len(failures(entries, "switch.schedules")) == 1
 
 
 async def test_failed_notification_is_only_logged(

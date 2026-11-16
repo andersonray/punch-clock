@@ -12,7 +12,7 @@ from collections import deque
 from datetime import datetime, tzinfo
 from typing import Any
 
-from homeassistant.const import EVENT_CORE_CONFIG_UPDATE
+from homeassistant.const import EVENT_CORE_CONFIG_UPDATE, Platform
 from homeassistant.core import (
     CALLBACK_TYPE,
     Context,
@@ -22,7 +22,7 @@ from homeassistant.core import (
     State,
     callback,
 )
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.event import (
@@ -39,6 +39,7 @@ from .const import (
     EVENT_LOGBOOK_ENTRY,
     EVENT_PROBLEM,
     ISSUE_WRITE_BUDGET,
+    MASTER_SWITCH_SUFFIX,
     MAX_ERRORS,
     MEDIA_PLAYER_ON_TIMEOUT,
     SAFETY_INTERVAL,
@@ -76,9 +77,10 @@ _MISSING = object()
 class PunchClockEngine:
     """Evaluates the schedule whenever something relevant changes and applies it."""
 
-    def __init__(self, hass: HomeAssistant, store: PunchClockStore) -> None:
+    def __init__(self, hass: HomeAssistant, store: PunchClockStore, entry_id: str) -> None:
         self.hass = hass
         self.store = store
+        self._entry_id = entry_id
         self.resolution = Resolution()
         self.next_boundary: datetime | None = None
         self.evaluated_at: datetime | None = None
@@ -521,7 +523,11 @@ class PunchClockEngine:
         sources: list[dict[str, Any]] | None = None,
         context: Context | None = None,
     ) -> None:
-        """Send one phone notification about a write's problems, if that's turned on."""
+        """Send one phone notification about a write's problems, if that's turned on.
+
+        The failure also gets an entry in Punch Clock's own Activity (its master switch's),
+        whether or not a phone gets the notification, so Activity keeps a history of them.
+        """
         config = self.store.config
         settings = config.settings
         if not problems or not settings.notify_failures:
@@ -532,11 +538,10 @@ class PunchClockEngine:
         if info["service"]:
             value = attempted[SERVICE_SETTING]
             targets = [self._name(i) for i in entity_ids(value["target"])]
-            title, message = service_failure(config, info["service"], targets, sources, problems)
+            failure = service_failure(config, info["service"], targets, sources, problems)
         else:
-            title, message = entity_failure(
-                config, target, info["name"], attempted, sources, problems
-            )
+            failure = entity_failure(config, target, info["name"], attempted, sources, problems)
+        self._log(TITLE, failure.activity, self._master_switch())
         services = notifier.services_for(self.hass, settings.notify_target)
         if not services:
             _LOGGER.warning(
@@ -547,10 +552,18 @@ class PunchClockEngine:
                 else "no phone has the Home Assistant app",
             )
             return
-        data = payload(title, message, f"{DOMAIN}_{slugify(target)}", settings.notify_priority)
+        data = payload(
+            failure.title, failure.message, f"{DOMAIN}_{slugify(target)}", settings.notify_priority
+        )
         self.hass.async_create_task(
             notifier.async_send(self.hass, services, data, context), f"{DOMAIN} notify {target}"
         )
+
+    @callback
+    def _master_switch(self) -> str | None:
+        """The master switch's entity ID, which may have been renamed; None if it's gone."""
+        unique_id = f"{self._entry_id}_{MASTER_SWITCH_SUFFIX}"
+        return er.async_get(self.hass).async_get_entity_id(Platform.SWITCH, DOMAIN, unique_id)
 
     # ------------------------------------------------------------------ status
 

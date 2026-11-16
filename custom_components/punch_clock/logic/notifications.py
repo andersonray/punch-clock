@@ -1,13 +1,15 @@
 """Phone notifications about values Punch Clock couldn't set.
 
 With ``settings.notify_failures`` on, the engine sends one notification for each write that
-fails or has to wait for an unavailable entity; see docs/semantics.md, "Failure notifications".
-This module builds the notification. The HA layer (``notifier.py``) sends it with the Companion
-app's ``notify.mobile_app_*`` services.
+fails or has to wait for an unavailable entity, and adds an entry to Punch Clock's own Activity;
+see docs/semantics.md, "Failure notifications". This module builds both. The HA layer
+(``notifier.py``) sends the notification with the Companion app's ``notify.mobile_app_*``
+services.
 """
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any
 
 from .describe import DAY_NAMES, TITLE, clock, describe_settings
@@ -111,6 +113,45 @@ def _schedule(config: Config, source: Mapping[str, Any]) -> str:
     return f"{block.name.strip() or 'An unnamed block'} ({tab} tab, {when})"
 
 
+@dataclass(frozen=True, slots=True)
+class Failure:
+    """What a failure notification, and its entry in Punch Clock's Activity, say."""
+
+    action: str
+    """What Punch Clock couldn't do, e.g. "couldn't set Hall"."""
+    schedule: tuple[str, ...]
+    """The block or tab default behind it, and what it wanted, as sentences."""
+    problems: tuple[str, ...]
+    entity_id: str | None = None
+    """The entity, named in Activity, where the entry isn't the entity's own."""
+
+    @property
+    def title(self) -> str:
+        """The notification's title, e.g. "Punch Clock couldn't set Hall"."""
+        return f"{TITLE} {self.action}"
+
+    @property
+    def message(self) -> str:
+        """The notification's message: a line per schedule sentence, then per problem."""
+        return "\n".join([*self.schedule, *self.problems])
+
+    @property
+    def activity(self) -> str:
+        """The message of the Activity entry, which is titled "Punch Clock".
+
+        One line, e.g. "couldn't set Hall (climate.hall). Morning warm-up (Winter tab, Mon
+        06:30 to 08:00) wanted heat, 21 °C. climate.set_temperature failed: device offline."
+        """
+        action = self.action
+        if self.entity_id and not action.endswith(self.entity_id):
+            action += f" ({self.entity_id})"
+        return " ".join([f"{action}.", *self.schedule, *(_sentence(p) for p in self.problems)])
+
+
+def _sentence(text: str) -> str:
+    return text if text.endswith((".", "!", "?")) else f"{text}."
+
+
 def entity_failure(
     config: Config,
     entity_id: str,
@@ -118,13 +159,12 @@ def entity_failure(
     settings: Mapping[str, Any],
     sources: Sequence[Mapping[str, Any]],
     problems: Sequence[str],
-) -> tuple[str, str]:
-    """The title and message for a failed write to an entity.
+) -> Failure:
+    """A failed write to an entity.
 
-    For example "Punch Clock couldn't set Hall", and "Morning warm-up (Winter tab, Mon
-    06:30 to 08:00) wanted heat, 21 °C." followed by a line for each problem, such as
-    "climate.set_temperature failed: device offline". ``settings`` are every value the write
-    tried to set, in the schedule's unit.
+    For example "couldn't set Hall", with "Morning warm-up (Winter tab, Mon 06:30 to 08:00)
+    wanted heat, 21 °C." and problems such as "climate.set_temperature failed: device
+    offline". ``settings`` are every value the write tried to set, in the schedule's unit.
     """
     unit = config.settings.temperature_unit
     lines: list[str] = []
@@ -137,7 +177,7 @@ def entity_failure(
             lines.append(f"{_schedule(config, source)} wanted {values}.")
     if rest := {k: v for k, v in settings.items() if k not in covered}:
         lines.insert(0, f"The schedule wanted {describe_settings(entity_id, rest, unit)}.")
-    return f"{TITLE} couldn't set {name or entity_id}", "\n".join([*lines, *problems])
+    return Failure(f"couldn't set {name or entity_id}", tuple(lines), tuple(problems), entity_id)
 
 
 def service_failure(
@@ -146,15 +186,15 @@ def service_failure(
     targets: Sequence[str],
     sources: Sequence[Mapping[str, Any]],
     problems: Sequence[str],
-) -> tuple[str, str]:
-    """The title and message for a failed service action.
+) -> Failure:
+    """A failed service action.
 
-    For example "Punch Clock couldn't call script.turn_on", and "Bedtime (Week tab, Sun
-    21:00 to 22:00) scheduled it for Bedroom." followed by a line for each problem.
+    For example "couldn't call script.turn_on", with "Bedtime (Week tab, Sun 21:00 to
+    22:00) scheduled it for Bedroom." and its problems.
     """
     suffix = f" for {', '.join(targets)}" if targets else ""
-    lines = [f"{_schedule(config, source)} scheduled it{suffix}." for source in sources]
-    return f"{TITLE} couldn't call {service}", "\n".join([*lines, *problems])
+    lines = tuple(f"{_schedule(config, source)} scheduled it{suffix}." for source in sources)
+    return Failure(f"couldn't call {service}", lines, tuple(problems))
 
 
 def sample_notification() -> tuple[str, str]:

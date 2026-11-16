@@ -29,10 +29,16 @@ def test_entity_failure_names_the_block_its_tab_and_times() -> None:
     sources = [source_data(CFG, Source("block", "t1", "b1"), ["hvac_mode", "temperature"])]
     settings = {"temperature": 21, "hvac_mode": "heat"}
     problems = ["climate.set_temperature failed: device offline"]
-    assert entity_failure(CFG, "climate.hall", "Hall", settings, sources, problems) == (
-        "Punch Clock couldn't set Hall",
+    failure = entity_failure(CFG, "climate.hall", "Hall", settings, sources, problems)
+    assert failure.title == "Punch Clock couldn't set Hall"
+    assert failure.message == (
         "Morning warm-up (Winter tab, Mon 06:30 to 08:00) wanted heat, 21 °C.\n"
-        "climate.set_temperature failed: device offline",
+        "climate.set_temperature failed: device offline"
+    )
+    # Activity titles the entry "Punch Clock" and doesn't attach it to the entity, so it names it.
+    assert failure.activity == (
+        "couldn't set Hall (climate.hall). Morning warm-up (Winter tab, Mon 06:30 to 08:00) "
+        "wanted heat, 21 °C. climate.set_temperature failed: device offline."
     )
 
 
@@ -43,31 +49,41 @@ def test_entity_failure_with_several_sources_and_problems() -> None:
         source_data(cfg, Source("default", "t1"), ["fan_mode"]),
     ]
     settings = {"hvac_mode": "cool", "fan_mode": "low"}
-    problems = ["hvac_mode skipped: 'cool' is not in the entity's hvac_modes", "boom"]
-    title, message = entity_failure(cfg, "climate.hall", None, settings, sources, problems)
-    assert title == "Punch Clock couldn't set climate.hall"
-    assert message.splitlines() == [
+    problems = ["hvac_mode skipped: 'cool' is not in the entity's hvac_modes", "Timed out."]
+    failure = entity_failure(cfg, "climate.hall", None, settings, sources, problems)
+    assert failure.title == "Punch Clock couldn't set climate.hall"
+    assert failure.message.splitlines() == [
         "An unnamed block (Winter tab, Fri 10:00 PM to 2:00 AM) wanted cool.",
         "The default for Winter wanted fan low.",
         *problems,
     ]
+    assert failure.activity == (
+        "couldn't set climate.hall. An unnamed block (Winter tab, Fri 10:00 PM to 2:00 AM) "
+        "wanted cool. The default for Winter wanted fan low. hvac_mode skipped: 'cool' is not "
+        "in the entity's hvac_modes. Timed out."
+    )
 
 
 def test_entity_failure_without_a_known_source() -> None:
     sources = [source_data(CFG, Source("block", "t1", "gone"), ["state"])]
-    _, message = entity_failure(CFG, "light.desk", "Desk", {"state": "on"}, sources, ["x"])
-    assert message == "A deleted block wanted on.\nx"
-    _, message = entity_failure(CFG, "light.desk", "Desk", {"state": "on"}, [], ["x"])
-    assert message == "The schedule wanted on.\nx"
+    failure = entity_failure(CFG, "light.desk", "Desk", {"state": "on"}, sources, ["x"])
+    assert failure.message == "A deleted block wanted on.\nx"
+    failure = entity_failure(CFG, "light.desk", "Desk", {"state": "on"}, [], ["x"])
+    assert failure.message == "The schedule wanted on.\nx"
 
 
 def test_service_failure() -> None:
     sources = [source_data(CFG, Source("block", "t1", "b1"), ["call"])]
-    assert service_failure(CFG, "script.turn_on", ["Bedtime"], sources, ["failed: boom"]) == (
-        "Punch Clock couldn't call script.turn_on",
-        "Morning warm-up (Winter tab, Mon 06:30 to 08:00) scheduled it for Bedtime.\nfailed: boom",
+    failure = service_failure(CFG, "script.turn_on", ["Bedtime"], sources, ["failed: boom"])
+    assert failure.title == "Punch Clock couldn't call script.turn_on"
+    assert failure.message == (
+        "Morning warm-up (Winter tab, Mon 06:30 to 08:00) scheduled it for Bedtime.\nfailed: boom"
     )
-    assert service_failure(CFG, "test.ping", [], [], ["boom"])[1] == "boom"
+    assert failure.activity == (
+        "couldn't call script.turn_on. Morning warm-up (Winter tab, Mon 06:30 to 08:00) "
+        "scheduled it for Bedtime. failed: boom."
+    )
+    assert service_failure(CFG, "test.ping", [], [], ["boom"]).message == "boom"
 
 
 @pytest.mark.parametrize(

@@ -11,7 +11,9 @@
   and times (or the tab default), the values it wanted and what went wrong. A write with several
   problems sends one notification. In the settings, turn it on, choose every phone (the default)
   or one phone, and choose a priority: low, normal, high (the default) or critical. **Send a
-  test notification** shows what it looks like. It's off by default.
+  test notification** shows what it looks like. Each failure is also listed in Punch Clock's
+  own Activity (its master switch's, which filtering by the Punch Clock device includes), as a
+  history of values it couldn't set. It's off by default.
 - `punch_clock/notify/phones` and `punch_clock/notify/test` WebSocket commands, and the
   `notify_failures`, `notify_target` and `notify_priority` settings.
 
