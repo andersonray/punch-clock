@@ -1,5 +1,6 @@
-import { LitElement, css, html, nothing } from "lit";
-import type { Settings, Status } from "../types";
+import { LitElement, css, html, nothing, type PropertyValues } from "lit";
+import type { NotifyPhone, NotifyPriority, NotifyTestResult, Settings, Status } from "../types";
+import { errorMessage, type PunchClockApi } from "../api";
 import { dayName, displayDays, formatHour } from "../logic/time";
 import { controls } from "../styles";
 import "./pc-dialog";
@@ -14,10 +15,30 @@ export interface LocalPrefs {
 
 export const HOUR_HEIGHTS = [32, 48, 64, 96];
 
+const PRIORITIES: { value: NotifyPriority; label: string; hint: string }[] = [
+  { value: "low", label: "Low", hint: "Arrives silently, without a sound or a pop-up." },
+  { value: "normal", label: "Normal", hint: "Arrives like the app's other notifications." },
+  {
+    value: "high",
+    label: "High",
+    hint: "Pops up on the screen right away. On an iPhone it also breaks through Focus.",
+  },
+];
+
+/** "Sent to Pixel 6. Couldn't send to Tablet: not connected." */
+export function testSummary(result: NotifyTestResult, phones: NotifyPhone[]): string {
+  const name = (service: string) => phones.find((p) => p.service === service)?.name ?? service;
+  const parts: string[] = [];
+  if (result.sent.length) parts.push(`Sent to ${result.sent.map(name).join(", ")}.`);
+  for (const f of result.failed) parts.push(`Couldn't send to ${name(f.service)}: ${f.error}.`);
+  return parts.join(" ");
+}
+
 /**
- * Settings: week start, units and debounce (stored in Home Assistant), plus display
- * preferences kept in this browser. Fires `settings-change` ({ changes }),
- * `prefs-change` ({ prefs }), `reapply` and `closed`.
+ * Settings: week start, units, debounce and failure notifications (stored in Home
+ * Assistant), plus display preferences kept in this browser. Fires `settings-change`
+ * ({ changes }), `prefs-change` ({ prefs }), `reapply` and `closed`. Lists the phones and
+ * sends test notifications itself, with `api`.
  */
 export class PcSettingsDialog extends LitElement {
   static override properties = {
@@ -25,30 +46,170 @@ export class PcSettingsDialog extends LitElement {
     settings: { attribute: false },
     prefs: { attribute: false },
     status: { attribute: false },
+    api: { attribute: false },
     language: {},
     use24h: { type: Boolean },
     version: {},
+    _phones: { state: true },
+    _testing: { state: true },
+    _testResult: { state: true },
   };
 
   declare open: boolean;
   declare settings: Settings;
   declare prefs: LocalPrefs;
   declare status: Status | null;
+  declare api: PunchClockApi | null;
   declare language: string;
   declare use24h: boolean;
   declare version: string;
+  /** The phones that notifications can go to; null until they're loaded. */
+  declare _phones: NotifyPhone[] | null;
+  declare _testing: boolean;
+  declare _testResult: string;
 
   constructor() {
     super();
     this.open = false;
     this.status = null;
+    this.api = null;
     this.language = "en";
     this.use24h = false;
     this.version = "";
+    this._phones = null;
+    this._testing = false;
+    this._testResult = "";
+  }
+
+  protected override updated(changed: PropertyValues<this>): void {
+    if (changed.has("open") && this.open) {
+      this._testResult = "";
+      void this.loadPhones();
+    }
+  }
+
+  private async loadPhones(): Promise<void> {
+    if (!this.api) return;
+    try {
+      this._phones = (await this.api.notifyPhones()).phones;
+    } catch {
+      this._phones = null;
+    }
+  }
+
+  private async sendTest(): Promise<void> {
+    if (!this.api) return;
+    this._testing = true;
+    this._testResult = "";
+    try {
+      this._testResult = testSummary(await this.api.notifyTest(), this._phones ?? []);
+    } catch (err) {
+      this._testResult = errorMessage(err);
+    } finally {
+      this._testing = false;
+    }
   }
 
   private fire(type: string, detail?: unknown): void {
     this.dispatchEvent(new CustomEvent(type, { detail }));
+  }
+
+  private change(changes: Partial<Settings>): void {
+    this._testResult = "";
+    this.fire("settings-change", { changes });
+  }
+
+  private renderNotifications() {
+    const s = this.settings;
+    const phones = this._phones ?? [];
+    const gone = s.notify_target !== null && !phones.some((p) => p.service === s.notify_target);
+    const priority = PRIORITIES.find((p) => p.value === s.notify_priority) ?? PRIORITIES[1]!;
+    return html`<h3>Notifications</h3>
+      <label class="toggle">
+        <span class="switch">
+          <input
+            type="checkbox"
+            class="notify-failures"
+            .checked=${s.notify_failures}
+            @change=${(e: Event) =>
+              this.change({ notify_failures: (e.target as HTMLInputElement).checked })}
+          />
+          <span></span>
+        </span>
+        Notify a phone when a scheduled value can't be set
+      </label>
+      <span class="muted hint"
+        >The notification names the entity, the block or tab default behind the value, and what went
+        wrong.</span
+      >
+      ${
+        s.notify_failures
+          ? html`<label
+                >Send to
+                <select
+                  class="notify-target"
+                  @change=${(e: Event) => {
+                    const value = (e.target as HTMLSelectElement).value;
+                    this.change({ notify_target: value || null });
+                  }}
+                >
+                  <option value="" ?selected=${s.notify_target === null}>Every phone</option>
+                  ${phones.map(
+                    (p) =>
+                      html`<option value=${p.service} ?selected=${p.service === s.notify_target}>
+                        ${p.name}
+                      </option>`,
+                  )}
+                  ${
+                    gone
+                      ? html`<option value=${s.notify_target!} selected>
+                          ${s.notify_target}${this._phones ? " (not found)" : ""}
+                        </option>`
+                      : nothing
+                  }
+                </select>
+                <span class="muted hint"
+                  >${
+                    this._phones?.length === 0
+                      ? "No phone has the Home Assistant app."
+                      : "Phones with the Home Assistant app."
+                  }</span
+                >
+              </label>
+              <label
+                >Priority
+                <select
+                  class="notify-priority"
+                  @change=${(e: Event) =>
+                    this.change({
+                      notify_priority: (e.target as HTMLSelectElement).value as NotifyPriority,
+                    })}
+                >
+                  ${PRIORITIES.map(
+                    (p) =>
+                      html`<option value=${p.value} ?selected=${p.value === s.notify_priority}>
+                        ${p.label}
+                      </option>`,
+                  )}
+                </select>
+                <span class="muted hint">${priority.hint}</span>
+              </label>
+              <div class="row">
+                <button
+                  class="btn notify-test"
+                  ?disabled=${this._testing}
+                  @click=${() => void this.sendTest()}
+                >
+                  Send a test notification
+                </button>
+                ${
+                  this._testResult
+                    ? html`<span class="muted hint" role="status">${this._testResult}</span>`
+                    : nothing
+                }
+              </div>`
+          : nothing
+      }`;
   }
 
   protected override render() {
@@ -137,6 +298,8 @@ export class PcSettingsDialog extends LitElement {
           </select>
         </label>
 
+        ${this.renderNotifications()}
+
         <h3>This browser</h3>
         <label
           >Hour height
@@ -214,6 +377,17 @@ export class PcSettingsDialog extends LitElement {
         display: flex;
         flex-direction: column;
         gap: 4px;
+      }
+      label.toggle {
+        flex-direction: row;
+        align-items: center;
+        gap: 10px;
+        cursor: pointer;
+      }
+      label.toggle + .hint {
+        /* The size of a hint inside a label (0.8em of the label's 0.85em). */
+        font-size: 0.68em;
+        margin-top: -10px;
       }
       h3 {
         margin: 8px 0 0;

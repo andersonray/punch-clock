@@ -154,12 +154,54 @@ Desired state is recomputed on:
   desired.
 - Service call errors are recorded as problems. They are not retried.
 - Problems show in the panel's status, in Activity (see below) and as warnings in Home
-  Assistant's log.
+  Assistant's log. They can also send a phone notification (see "Failure notifications").
 - **Write budget:** at most 6 writes per entity per 10 minutes. Above that, writes to that
   entity pause for 10 minutes and a Repairs issue is raised. This contains a schedule whose
   conditions keep flipping.
 - The editor warns when a condition references an entity that the schedule itself controls,
   because that can create a feedback loop.
+
+## Failure notifications
+
+When **Notify a phone when a scheduled value can't be set** is on (`settings.notify_failures`,
+off by default), a write that fails sends a phone notification through the Home Assistant app.
+
+- **What fails:** a service call that raises an error, a value the entity doesn't offer, and the
+  write budget pausing an entity's writes. A write with several problems sends **one**
+  notification that lists them all. A write to an unavailable entity hasn't failed: it waits as
+  pending (see "Errors and safety"). While an entity's writes are paused, the writes refused
+  don't notify again.
+- **Where:** `settings.notify_target` is one phone's notify service, such as
+  `mobile_app_pixel_6`. When it's null, the notification goes to every `notify.mobile_app_*`
+  service. These are the app's per-phone services. mobile_app also has notify entities, but those
+  take only a title and a message. If the chosen service doesn't exist (the phone was renamed or
+  removed), a warning is logged instead.
+- **What it says:** the title names the entity, "Punch Clock couldn't set Hall", or the service,
+  "Punch Clock couldn't call script.turn_on". The message names the block, its tab, its day and
+  its times (or the tab default) with the values it wanted, then each problem on a line of its
+  own:
+
+  ```text
+  Morning warm-up (Winter tab, Mon 06:30 to 08:00) wanted heat, 21 °C.
+  climate.set_temperature failed: device offline
+  ```
+
+- **How it looks:** orange (`#FF9800`) with an `mdi:alert` icon. Android shows both; an iPhone
+  shows the app's icon. The tag `punch_clock_<entity>` makes a newer problem with an entity
+  replace the older one, the group `punch_clock` keeps them together, and tapping one opens
+  Punch Clock.
+- **Priority** (`settings.notify_priority`):
+
+  | Priority | Android | iPhone |
+  |---|---|---|
+  | `low` | Channel "Punch Clock (low priority)", importance low: no sound or pop-up | Passive: delivered silently |
+  | `normal` (default) | Channel "Punch Clock", importance default | Active |
+  | `high` | Channel "Punch Clock (high priority)", importance high (pops up), and `priority: high` with `ttl: 0` for delivery at once | Time-sensitive: breaks through Focus |
+
+  Android fixes a channel's importance when the channel is created, so each priority has its own
+  channel. A channel's sound and pop-up can then be changed in the app's notification settings.
+- A notification that can't be sent is logged as a warning. It isn't a problem, so it can't
+  notify again.
 
 ## Activity view and events
 

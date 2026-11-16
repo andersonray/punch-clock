@@ -32,10 +32,12 @@ CELSIUS = "°C"
 FAHRENHEIT = "°F"
 TEMPERATURE_UNITS: tuple[str, ...] = (CELSIUS, FAHRENHEIT)
 TIME_FORMATS: tuple[str, ...] = ("auto", "12", "24")
+NOTIFY_PRIORITIES: tuple[str, ...] = ("low", "normal", "high")
 
 type Operator = Literal["is", "is_not", "gt", "lt"]
 type GroupMode = Literal["all", "any"]
 type TimeFormat = Literal["auto", "12", "24"]
+type NotifyPriority = Literal["low", "normal", "high"]
 OPERATORS: tuple[str, ...] = ("is", "is_not", "gt", "lt")
 GROUP_MODES: tuple[str, ...] = ("all", "any")
 
@@ -43,6 +45,7 @@ _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 _ENTITY_ID_RE = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$")
 _SERVICE_RE = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$")
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+_NOTIFY_SERVICE_RE = re.compile(r"^[a-z0-9_]+$")
 _TARGET_KEYS = frozenset({"entity_id", "device_id", "area_id", "floor_id", "label_id"})
 
 
@@ -135,6 +138,11 @@ class Settings:
     """Unit the schedule's temperatures are written in (converted to HA's unit on write)."""
     time_format: TimeFormat = "auto"
     """Clock shown in the panel: "auto" follows the user's Home Assistant profile."""
+    notify_failures: bool = False
+    """Send a phone notification when a scheduled value can't be set."""
+    notify_target: str | None = None
+    """The notify service to send to, such as "mobile_app_pixel_6"; None sends to every phone."""
+    notify_priority: NotifyPriority = "normal"
 
 
 @dataclass(frozen=True, slots=True)
@@ -474,6 +482,14 @@ def parse_settings(data: Any, path: str = "settings") -> Settings:
     time_format = m.get("time_format", "auto")
     if time_format not in TIME_FORMATS:
         raise ConfigError(f"{path}.time_format", f"must be one of {list(TIME_FORMATS)}")
+    priority = m.get("notify_priority", "normal")
+    if priority not in NOTIFY_PRIORITIES:
+        raise ConfigError(f"{path}.notify_priority", f"must be one of {list(NOTIFY_PRIORITIES)}")
+    target = None
+    if m.get("notify_target") is not None:
+        target = _str(
+            m, "notify_target", path, max_length=MAX_VALUE_LENGTH, pattern=_NOTIFY_SERVICE_RE
+        )
     return Settings(
         enabled=_bool(m, "enabled", path, default=True),
         week_start=_int(m, "week_start", path, 0, 6, default=DEFAULT_WEEK_START),
@@ -482,6 +498,9 @@ def parse_settings(data: Any, path: str = "settings") -> Settings:
         ),
         temperature_unit=unit,
         time_format=cast(TimeFormat, time_format),
+        notify_failures=_bool(m, "notify_failures", path, default=False),
+        notify_target=target,
+        notify_priority=cast(NotifyPriority, priority),
     )
 
 
@@ -631,6 +650,9 @@ def dump_settings(settings: Settings) -> dict[str, Any]:
         "debounce_seconds": settings.debounce_seconds,
         "temperature_unit": settings.temperature_unit,
         "time_format": settings.time_format,
+        "notify_failures": settings.notify_failures,
+        "notify_target": settings.notify_target,
+        "notify_priority": settings.notify_priority,
     }
 
 

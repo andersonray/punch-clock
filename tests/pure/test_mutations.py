@@ -30,6 +30,30 @@ def test_settings() -> None:
         update_settings(config, {"week_start": 7})
 
 
+def test_notification_settings() -> None:
+    config = default_config()
+    assert config.settings.notify_failures is False
+    assert config.settings.notify_target is None
+    assert config.settings.notify_priority == "normal"
+    config = update_settings(
+        config,
+        {"notify_failures": True, "notify_target": "mobile_app_pixel_6", "notify_priority": "high"},
+    )
+    assert config.settings.notify_failures is True
+    assert config.settings.notify_target == "mobile_app_pixel_6"
+    assert config.settings.notify_priority == "high"
+    assert update_settings(config, {"notify_target": None}).settings.notify_target is None
+    for bad in [
+        {"notify_failures": "yes"},
+        {"notify_priority": "critical"},
+        {"notify_target": "notify.mobile_app_pixel_6"},
+        {"notify_target": ""},
+        {"notify_target": 3},
+    ]:
+        with pytest.raises(ConfigError):
+            update_settings(config, bad)
+
+
 def test_changing_temperature_unit_converts_schedules() -> None:
     config = default_config()
     tab_id = config.tabs[0].id

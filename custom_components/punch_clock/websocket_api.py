@@ -9,6 +9,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
+from . import notifier
 from .const import (
     CONF_REQUIRE_ADMIN,
     DATA_WS_REGISTERED,
@@ -20,6 +21,7 @@ from .const import (
 from .logic import mutations
 from .logic.conditions import explain
 from .logic.model import ConfigError, dump_block, dump_config, dump_settings, dump_tab, parse_group
+from .logic.notifications import payload, sample_notification
 from .logic.transitions import Mode
 
 if TYPE_CHECKING:
@@ -58,6 +60,8 @@ def async_register(hass: HomeAssistant) -> None:
         ws_blocks_delete_many,
         ws_conditions_evaluate,
         ws_reapply,
+        ws_notify_phones,
+        ws_notify_test,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -368,3 +372,51 @@ def ws_reapply(
     """Write every desired value that the entity doesn't currently have."""
     data.engine.evaluate(Mode.REENABLE, "reapply")
     connection.send_result(msg["id"], {})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/notify/phones"})
+@_handler
+def ws_notify_phones(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    data: PunchClockData,
+) -> None:
+    """The phones that failure notifications can go to."""
+    connection.send_result(msg["id"], {"phones": notifier.phones(hass)})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/notify/test"})
+@_handler
+def ws_notify_test(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    data: PunchClockData,
+) -> None:
+    """Send a sample notification with the saved phone and priority settings."""
+    settings = data.store.config.settings
+    services = notifier.services_for(hass, settings.notify_target)
+    if not services:
+        connection.send_error(
+            msg["id"],
+            ERR_NOT_FOUND,
+            f"notify.{settings.notify_target} wasn't found"
+            if settings.notify_target
+            else "No phone has the Home Assistant app",
+        )
+        return
+    title, message = sample_notification()
+    sample = payload(title, message, f"{DOMAIN}_test", settings.notify_priority)
+
+    async def send() -> None:
+        failed = await notifier.async_send(hass, services, sample, connection.context(msg))
+        connection.send_result(
+            msg["id"],
+            {
+                "sent": [s for s in services if s not in failed],
+                "failed": [{"service": s, "error": e} for s, e in failed.items()],
+            },
+        )
+
+    hass.async_create_task(send(), f"{DOMAIN} test notification")

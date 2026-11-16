@@ -36,7 +36,16 @@ class LimitError(ConfigError):
 
 
 SETTINGS_FIELDS = frozenset(
-    {"enabled", "week_start", "debounce_seconds", "temperature_unit", "time_format"}
+    {
+        "enabled",
+        "week_start",
+        "debounce_seconds",
+        "temperature_unit",
+        "time_format",
+        "notify_failures",
+        "notify_target",
+        "notify_priority",
+    }
 )
 TAB_FIELDS = frozenset({"name", "enabled", "conditions", "defaults"})
 BLOCK_FIELDS = frozenset(

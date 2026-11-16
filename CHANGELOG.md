@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Failure notifications: Punch Clock can notify a phone through the Home Assistant app when it
+  can't set a scheduled value (a service call fails, the entity doesn't offer the value, or the
+  write budget pauses an entity). The orange notification, with a warning icon, names the
+  entity, the block with its tab, day and times (or the tab default), the values it wanted and
+  what went wrong. A write with several problems sends one notification. In the settings, turn
+  it on, choose one phone or every phone, and choose a priority (low, normal or high). **Send a
+  test notification** shows what it looks like. It's off by default.
+- `punch_clock/notify/phones` and `punch_clock/notify/test` WebSocket commands, and the
+  `notify_failures`, `notify_target` and `notify_priority` settings.
+
 ## 1.0.0 (2026-10-20)
 
 ### Added

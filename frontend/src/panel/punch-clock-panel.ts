@@ -902,6 +902,7 @@ export class PunchClockPanel extends LitElement {
         .settings=${config.settings}
         .prefs=${this._prefs}
         .status=${this._status}
+        .api=${this.api}
         .language=${this.language}
         .use24h=${this.use24h}
         .version=${this._info?.version ?? __PC_VERSION__}

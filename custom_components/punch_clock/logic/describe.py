@@ -89,7 +89,8 @@ def describe_settings(entity_id: str, settings: Mapping[str, Any], unit: str) ->
     return ", ".join(describe_value(key, settings[key], unit) for key in keys)
 
 
-def _clock(minute: int, twelve_hour: bool) -> str:
+def clock(minute: int, twelve_hour: bool) -> str:
+    """A minute of the day as "07:30", or "7:30 AM" on a 12-hour clock."""
     hours, minutes = divmod(minute, 60)
     if not twelve_hour:
         return f"{hours:02d}:{minutes:02d}"
@@ -112,7 +113,7 @@ def source_data(config: Config, source: Source, keys: Sequence[str]) -> dict[str
     elif block.name.strip():
         label = block.name.strip()
     else:
-        when = _clock(block.start, config.settings.time_format == "12")
+        when = clock(block.start, config.settings.time_format == "12")
         label = f"unnamed block, {DAY_NAMES[block.day]} {when}"
     return {
         "kind": source.kind,
