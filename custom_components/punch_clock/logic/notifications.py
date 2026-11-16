@@ -1,8 +1,9 @@
 """Phone notifications about values Punch Clock couldn't set.
 
-With ``settings.notify_failures`` on, the engine sends one notification for each failed write;
-see docs/semantics.md, "Failure notifications". This module builds the notification. The HA
-layer (``notifier.py``) sends it with the Companion app's ``notify.mobile_app_*`` services.
+With ``settings.notify_failures`` on, the engine sends one notification for each write that
+fails or has to wait for an unavailable entity; see docs/semantics.md, "Failure notifications".
+This module builds the notification. The HA layer (``notifier.py``) sends it with the Companion
+app's ``notify.mobile_app_*`` services.
 """
 
 from collections.abc import Mapping, Sequence
@@ -38,14 +39,25 @@ PRIORITY_DATA: dict[str, dict[str, Any]] = {
         "ttl": 0,
         "push": {"interruption-level": "time-sensitive"},
     },
+    "critical": {
+        "channel": "alarm_stream",
+        "priority": "high",
+        "ttl": 0,
+        "push": {
+            "interruption-level": "critical",
+            "sound": {"name": "default", "critical": 1, "volume": 1.0},
+        },
+    },
 }
 """Companion app data for each priority.
 
 On Android, ``importance`` sets how the notification channel alerts (high pops up on the screen,
 low is silent), and ``priority: high`` with ``ttl: 0`` delivers at once even when the phone is
 idle. Android fixes a channel's importance when the channel is first created, so each priority
-has a channel of its own. On an iPhone, ``push.interruption-level`` does the same: time-sensitive
-breaks through Focus, and passive is silent.
+has a channel of its own. The app's special ``alarm_stream`` channel plays the alarm sound, even
+when the phone is on silent. On an iPhone, ``push.interruption-level`` does the same:
+time-sensitive breaks through Focus, passive is silent, and critical (with the critical sound)
+plays even on silent, once the app is allowed to send critical alerts.
 """
 
 
@@ -68,6 +80,17 @@ def payload(title: str, message: str, tag: str, priority: NotifyPriority) -> dic
             **deepcopy(PRIORITY_DATA[priority]),
         },
     }
+
+
+def unavailable_problem(state: str | None) -> str:
+    """The problem line for a write that waits because the entity isn't available.
+
+    ``state`` is the entity's state, or None if the entity doesn't exist.
+    """
+    if state is None:
+        return "It doesn't exist, so Punch Clock will set it if it appears."
+    status = "It's unavailable" if state == "unavailable" else f"Its state is {state}"
+    return f"{status}, so Punch Clock will set it when it's available again."
 
 
 def _schedule(config: Config, source: Mapping[str, Any]) -> str:

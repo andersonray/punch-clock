@@ -151,7 +151,8 @@ Desired state is recomputed on:
   (for example, off wins) are expected, not problems.
 - If a target entity is unavailable when it should be written, the write is kept as
   *pending* and done as soon as the entity becomes available, provided the value is still
-  desired.
+  desired. Waiting isn't a problem, so it isn't recorded in Activity, but it does send a failure
+  notification when those are on.
 - Service call errors are recorded as problems. They are not retried.
 - Problems show in the panel's status, in Activity (see below) and as warnings in Home
   Assistant's log. They can also send a phone notification (see "Failure notifications").
@@ -164,16 +165,20 @@ Desired state is recomputed on:
 ## Failure notifications
 
 When **Notify a phone when a scheduled value can't be set** is on (`settings.notify_failures`,
-off by default), a write that fails sends a phone notification through the Home Assistant app.
+off by default), a write that can't be made sends a phone notification through the Home
+Assistant app right away.
 
-- **What fails:** a service call that raises an error, a value the entity doesn't offer, and the
-  write budget pausing an entity's writes. A write with several problems sends **one**
-  notification that lists them all. A write to an unavailable entity hasn't failed: it waits as
-  pending (see "Errors and safety"). While an entity's writes are paused, the writes refused
-  don't notify again.
+- **When:** a service call raises an error; the entity doesn't offer a value; the write budget
+  pauses an entity's writes; or the entity isn't available (its state is `unavailable` or
+  `unknown`, or it doesn't exist). An offline device shows up in Home Assistant as unavailable
+  entities. The write to an entity that isn't available still waits as pending (see "Errors and
+  safety"), and the notification says it will be set when it's available again. When the entity
+  comes back, the write is made without another notification. A write with several problems
+  sends **one** notification that lists them all. While an entity's writes are paused, the writes
+  refused don't notify again.
 - **Where:** `settings.notify_target` is one phone's notify service, such as
-  `mobile_app_pixel_6`. When it's null, the notification goes to every `notify.mobile_app_*`
-  service. These are the app's per-phone services. mobile_app also has notify entities, but those
+  `mobile_app_pixel_6`. When it's null (the default), the notification goes to every
+  `notify.mobile_app_*` service. These are the app's per-phone services. mobile_app also has notify entities, but those
   take only a title and a message. If the chosen service doesn't exist (the phone was renamed or
   removed), a warning is logged instead.
 - **What it says:** the title names the entity, "Punch Clock couldn't set Hall", or the service,
@@ -183,8 +188,11 @@ off by default), a write that fails sends a phone notification through the Home 
 
   ```text
   Morning warm-up (Winter tab, Mon 06:30 to 08:00) wanted heat, 21 °C.
-  climate.set_temperature failed: device offline
+  climate.set_temperature failed: Unable to connect
   ```
+
+  For an entity that isn't available, the last line is "It's unavailable, so Punch Clock will
+  set it when it's available again."
 
 - **How it looks:** orange (`#FF9800`) with an `mdi:alert` icon. Android shows both; an iPhone
   shows the app's icon. The tag `punch_clock_<entity>` makes a newer problem with an entity
@@ -195,11 +203,12 @@ off by default), a write that fails sends a phone notification through the Home 
   | Priority | Android | iPhone |
   |---|---|---|
   | `low` | Channel "Punch Clock (low priority)", importance low: no sound or pop-up | Passive: delivered silently |
-  | `normal` (default) | Channel "Punch Clock", importance default | Active |
-  | `high` | Channel "Punch Clock (high priority)", importance high (pops up), and `priority: high` with `ttl: 0` for delivery at once | Time-sensitive: breaks through Focus |
+  | `normal` | Channel "Punch Clock", importance default | Active |
+  | `high` (default) | Channel "Punch Clock (high priority)", importance high (pops up), and `priority: high` with `ttl: 0` for delivery at once | Time-sensitive: breaks through Focus |
+  | `critical` | The app's `alarm_stream` channel, which plays the alarm sound even on silent, with `priority: high` and `ttl: 0` | Critical, with the critical sound: plays even on silent, once the app is allowed to send critical alerts |
 
-  Android fixes a channel's importance when the channel is created, so each priority has its own
-  channel. A channel's sound and pop-up can then be changed in the app's notification settings.
+  Android fixes a channel's importance when the channel is created, so each of the first three
+  priorities has its own channel. A channel's sound and pop-up can then be changed in the app's notification settings.
 - A notification that can't be sent is logged as a warning. It isn't a problem, so it can't
   notify again.
 

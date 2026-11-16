@@ -34,18 +34,22 @@ def test_notification_settings() -> None:
     config = default_config()
     assert config.settings.notify_failures is False
     assert config.settings.notify_target is None
-    assert config.settings.notify_priority == "normal"
+    assert config.settings.notify_priority == "high"
     config = update_settings(
         config,
-        {"notify_failures": True, "notify_target": "mobile_app_pixel_6", "notify_priority": "high"},
+        {
+            "notify_failures": True,
+            "notify_target": "mobile_app_pixel_6",
+            "notify_priority": "critical",
+        },
     )
     assert config.settings.notify_failures is True
     assert config.settings.notify_target == "mobile_app_pixel_6"
-    assert config.settings.notify_priority == "high"
+    assert config.settings.notify_priority == "critical"
     assert update_settings(config, {"notify_target": None}).settings.notify_target is None
     for bad in [
         {"notify_failures": "yes"},
-        {"notify_priority": "critical"},
+        {"notify_priority": "urgent"},
         {"notify_target": "notify.mobile_app_pixel_6"},
         {"notify_target": ""},
         {"notify_target": 3},

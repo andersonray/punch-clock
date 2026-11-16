@@ -107,8 +107,11 @@ async def test_failed_write_notifies_every_phone(
     assert data["data"]["color"] == "#FF9800"
     assert data["data"]["notification_icon"] == "mdi:alert"
     assert data["data"]["tag"] == "punch_clock_climate_hall"
-    assert data["data"]["channel"] == "Punch Clock"
-    assert data["data"]["importance"] == "default"
+    # High priority by default.
+    assert data["data"]["channel"] == "Punch Clock (high priority)"
+    assert data["data"]["importance"] == "high"
+    assert data["data"]["priority"] == "high"
+    assert data["data"]["ttl"] == 0
 
 
 async def test_one_notification_per_write_to_the_chosen_phone(
@@ -120,7 +123,7 @@ async def test_one_notification_per_write_to_the_chosen_phone(
         blocks=[warm_up(settings={"hvac_mode": "cool", "temperature": 22})],
         notify_failures=True,
         notify_target="mobile_app_pixel",
-        notify_priority="high",
+        notify_priority="critical",
     )
     fail(hass, "climate", "set_temperature")
     sent = phones(hass, "pixel", "tablet")
@@ -134,9 +137,8 @@ async def test_one_notification_per_write_to_the_chosen_phone(
         "hvac_mode skipped: 'cool' is not in the entity's hvac_modes",
         "climate.set_temperature failed: device offline",
     ]
-    assert data["data"]["importance"] == "high"
-    assert data["data"]["priority"] == "high"
-    assert data["data"]["ttl"] == 0
+    assert data["data"]["channel"] == "alarm_stream"
+    assert data["data"]["push"]["interruption-level"] == "critical"
 
 
 async def test_value_the_entity_doesnt_offer(
@@ -155,31 +157,55 @@ async def test_value_the_entity_doesnt_offer(
     ]
 
 
-async def test_successful_and_pending_writes_dont_notify(
+async def test_successful_write_doesnt_notify(
     hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
 ) -> None:
     hass.states.async_set(CLIMATE, "heat", CLIMATE_ATTRS)
-    hass.states.async_set("climate.away", "unavailable")
-    hass_storage[STORAGE_KEY_CONFIG] = stored_config(
-        blocks=[
-            block(
-                "b_1",
-                day=0,
-                start=8 * 60,
-                duration=60,
-                actions=[
-                    entity_action(CLIMATE, temperature=22),
-                    entity_action("climate.away", temperature=22),
-                ],
-            )
-        ],
-        notify_failures=True,
-    )
+    hass_storage[STORAGE_KEY_CONFIG] = stored_config(blocks=[warm_up()], notify_failures=True)
     ok(hass, "climate.set_temperature")
     sent = phones(hass, "pixel")
     await setup_integration(hass)
     await move_to(hass, freezer, START + timedelta(hours=1))
     assert sent == []
+
+
+async def test_unavailable_entity_notifies_right_away(
+    hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
+) -> None:
+    hass.states.async_set(CLIMATE, "unavailable", {"friendly_name": "Hall"})
+    hass_storage[STORAGE_KEY_CONFIG] = stored_config(blocks=[warm_up()], notify_failures=True)
+    ok(hass, "climate.set_temperature")
+    sent = phones(hass, "pixel")
+    entry = await setup_integration(hass)
+    await move_to(hass, freezer, START + timedelta(hours=1))
+    assert [(data["title"], data["message"]) for _, data in sent] == [
+        (
+            "Punch Clock couldn't set Hall",
+            "b_1 (Week tab, Mon 08:00 to 09:00) wanted 22 °C.\n"
+            "It's unavailable, so Punch Clock will set it when it's available again.",
+        )
+    ]
+    # The write still waits for the entity, and is made without another notification.
+    assert entry.runtime_data.engine.status()["pending"] == [CLIMATE]
+    hass.states.async_set(CLIMATE, "heat", CLIMATE_ATTRS)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.engine.status()["pending"] == []
+    assert len(sent) == 1
+
+
+async def test_missing_entity_notifies(
+    hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
+) -> None:
+    hass_storage[STORAGE_KEY_CONFIG] = stored_config(blocks=[warm_up()], notify_failures=True)
+    sent = phones(hass, "pixel")
+    await setup_integration(hass)
+    await move_to(hass, freezer, START + timedelta(hours=1))
+    assert [(data["title"], data["message"].splitlines()[-1]) for _, data in sent] == [
+        (
+            "Punch Clock couldn't set climate.hall",
+            "It doesn't exist, so Punch Clock will set it if it appears.",
+        )
+    ]
 
 
 async def test_paused_writes_notify_once(

@@ -10,6 +10,7 @@ from logic.notifications import (
     payload,
     sample_notification,
     service_failure,
+    unavailable_problem,
 )
 from logic.resolver import Source
 
@@ -83,6 +84,7 @@ def test_service_failure() -> None:
                 "ttl": 0,
             },
         ),
+        ("critical", {"channel": "alarm_stream", "priority": "high", "ttl": 0}),
     ],
 )
 def test_payload_priorities(priority: str, expected: dict[str, object]) -> None:
@@ -95,15 +97,34 @@ def test_payload_priorities(priority: str, expected: dict[str, object]) -> None:
     assert extra["tag"] == "punch_clock_climate_hall"
     assert extra["clickAction"] == extra["url"] == "/punch-clock"
     assert {k: extra[k] for k in expected} == expected
-    assert ("priority" in extra) == (priority == "high")
-    levels = {"low": "passive", "normal": "active", "high": "time-sensitive"}
-    assert extra["push"] == {"interruption-level": levels[priority]}
+    assert ("priority" in extra) == (priority in {"high", "critical"})
+    levels = {
+        "low": "passive",
+        "normal": "active",
+        "high": "time-sensitive",
+        "critical": "critical",
+    }
+    assert extra["push"]["interruption-level"] == levels[priority]
+    if priority == "critical":
+        assert extra["push"]["sound"] == {"name": "default", "critical": 1, "volume": 1.0}
 
 
 def test_payloads_dont_share_nested_data() -> None:
     first = payload("T", "M", "tag", "high")
     first["data"]["push"]["sound"] = "x"
     assert "sound" not in payload("T", "M", "tag", "high")["data"]["push"]
+
+
+def test_unavailable_problem() -> None:
+    assert unavailable_problem("unavailable") == (
+        "It's unavailable, so Punch Clock will set it when it's available again."
+    )
+    assert unavailable_problem("unknown") == (
+        "Its state is unknown, so Punch Clock will set it when it's available again."
+    )
+    assert (
+        unavailable_problem(None) == "It doesn't exist, so Punch Clock will set it if it appears."
+    )
 
 
 def test_sample_notification() -> None:

@@ -23,7 +23,15 @@ const PRIORITIES: { value: NotifyPriority; label: string; hint: string }[] = [
     label: "High",
     hint: "Pops up on the screen right away. On an iPhone it also breaks through Focus.",
   },
+  {
+    value: "critical",
+    label: "Critical",
+    hint:
+      "Sounds like an alarm, even when the phone is on silent. On an iPhone, the app needs " +
+      "permission to send critical alerts.",
+  },
 ];
+const HIGH = PRIORITIES[2]!;
 
 /** "Sent to Pixel 6. Couldn't send to Tablet: not connected." */
 export function testSummary(result: NotifyTestResult, phones: NotifyPhone[]): string {
@@ -123,7 +131,7 @@ export class PcSettingsDialog extends LitElement {
     const s = this.settings;
     const phones = this._phones ?? [];
     const gone = s.notify_target !== null && !phones.some((p) => p.service === s.notify_target);
-    const priority = PRIORITIES.find((p) => p.value === s.notify_priority) ?? PRIORITIES[1]!;
+    const priority = PRIORITIES.find((p) => p.value === s.notify_priority) ?? HIGH;
     return html`<h3>Notifications</h3>
       <label class="toggle">
         <span class="switch">

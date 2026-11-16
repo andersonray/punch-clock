@@ -43,7 +43,7 @@ function makeConfig(): Config {
       time_format: "auto",
       notify_failures: false,
       notify_target: null,
-      notify_priority: "normal",
+      notify_priority: "high",
     },
     tabs: [
       { id: "t_1", name: "Week", enabled: true, conditions: emptyGroup("g_t1"), defaults: [] },
@@ -1632,6 +1632,9 @@ describe("notification settings", () => {
     await settle(el);
     await (dialog() as unknown as { updateComplete: Promise<void> }).updateComplete;
   };
+  /** The option rendered as selected. (happy-dom's `select.value` ignores a later `selected`.) */
+  const selectedValue = (select: HTMLSelectElement) =>
+    select.querySelector("option[selected]")?.getAttribute("value");
   const choose = (select: HTMLSelectElement, value: string) => {
     select.value = value;
     select.dispatchEvent(new Event("change"));
@@ -1670,9 +1673,17 @@ describe("notification settings", () => {
     expect(lastCall("settings/update")).toMatchObject({ changes: { notify_target: null } });
 
     const priority = find<HTMLSelectElement>(".notify-priority")!;
-    expect(priority.value).toBe("normal");
-    choose(priority, "high");
-    expect(lastCall("settings/update")).toMatchObject({ changes: { notify_priority: "high" } });
+    expect([...priority.options].map((o) => o.value)).toEqual([
+      "low",
+      "normal",
+      "high",
+      "critical",
+    ]);
+    expect(selectedValue(priority)).toBe("high");
+    choose(priority, "critical");
+    expect(lastCall("settings/update")).toMatchObject({
+      changes: { notify_priority: "critical" },
+    });
 
     find<HTMLButtonElement>(".notify-test")!.click();
     await settle(el);
@@ -1690,7 +1701,7 @@ describe("notification settings", () => {
     });
     await openSettings();
     const target = find<HTMLSelectElement>(".notify-target")!;
-    expect(target.value).toBe("mobile_app_old");
+    expect(selectedValue(target)).toBe("mobile_app_old");
     expect(target.selectedOptions[0]!.textContent?.trim()).toBe("mobile_app_old (not found)");
   });
 });

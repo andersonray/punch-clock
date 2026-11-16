@@ -61,7 +61,7 @@ from .logic.describe import (
     write_message,
 )
 from .logic.model import Config
-from .logic.notifications import entity_failure, payload, service_failure
+from .logic.notifications import entity_failure, payload, service_failure, unavailable_problem
 from .logic.resolver import SERVICE_PREFIX, SERVICE_SETTING, Key, Resolution, Source, resolve
 from .logic.state import SPECIAL_STATES, StateView
 from .logic.timemath import boundaries, next_boundary, week_minute
@@ -274,6 +274,8 @@ class PunchClockEngine:
             state = self.lookup(target)
             if state is None or not state.available:
                 self._pending.setdefault(target, {}).update(settings)
+                problem = unavailable_problem(None if state is None else state.state)
+                self._notify(target, settings, [problem])
                 continue
             self._write_entity(target, settings, state, reason)
 

@@ -179,13 +179,14 @@ Scheduled temperatures are stored in the unit you choose and converted to Home A
 when they're set. Changing the unit converts the temperatures already in your schedules.
 
 Under **Notifications**, turn on **Notify a phone when a scheduled value can't be set** to get a
-notification from the Home Assistant app whenever Punch Clock can't set a value: a service call
-fails, the entity doesn't offer the value, or too many writes pause an entity. The orange
-notification, with a warning icon, names the entity, the block (with its tab, day and times) or
-tab default behind the value, and what went wrong. Send it to one phone or to every phone, and
-choose a priority: low arrives silently, and high pops up on the screen (on an iPhone, it also
-breaks through Focus). **Send a test notification** shows what it looks like. It's off by
-default. See [docs/semantics.md](docs/semantics.md#failure-notifications).
+notification from the Home Assistant app whenever Punch Clock can't set a value: the entity is
+unavailable (Punch Clock still sets it when it's back), a service call fails, the entity doesn't
+offer the value, or too many writes pause an entity. The orange notification, with a warning
+icon, names the entity, the block (with its tab, day and times) or tab default behind the value,
+and what went wrong. It goes to every phone unless you pick one, at high priority (pops up on
+the screen; on an iPhone it also breaks through Focus) unless you pick low, normal or critical
+(sounds like an alarm, even on silent). **Send a test notification** shows what it looks like.
+It's off by default. See [docs/semantics.md](docs/semantics.md#failure-notifications).
 
 ### On a phone
 

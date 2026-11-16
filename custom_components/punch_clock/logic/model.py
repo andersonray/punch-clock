@@ -32,12 +32,13 @@ CELSIUS = "°C"
 FAHRENHEIT = "°F"
 TEMPERATURE_UNITS: tuple[str, ...] = (CELSIUS, FAHRENHEIT)
 TIME_FORMATS: tuple[str, ...] = ("auto", "12", "24")
-NOTIFY_PRIORITIES: tuple[str, ...] = ("low", "normal", "high")
+NOTIFY_PRIORITIES: tuple[str, ...] = ("low", "normal", "high", "critical")
 
 type Operator = Literal["is", "is_not", "gt", "lt"]
 type GroupMode = Literal["all", "any"]
 type TimeFormat = Literal["auto", "12", "24"]
-type NotifyPriority = Literal["low", "normal", "high"]
+type NotifyPriority = Literal["low", "normal", "high", "critical"]
+DEFAULT_NOTIFY_PRIORITY: NotifyPriority = "high"
 OPERATORS: tuple[str, ...] = ("is", "is_not", "gt", "lt")
 GROUP_MODES: tuple[str, ...] = ("all", "any")
 
@@ -142,7 +143,7 @@ class Settings:
     """Send a phone notification when a scheduled value can't be set."""
     notify_target: str | None = None
     """The notify service to send to, such as "mobile_app_pixel_6"; None sends to every phone."""
-    notify_priority: NotifyPriority = "normal"
+    notify_priority: NotifyPriority = DEFAULT_NOTIFY_PRIORITY
 
 
 @dataclass(frozen=True, slots=True)
@@ -482,7 +483,7 @@ def parse_settings(data: Any, path: str = "settings") -> Settings:
     time_format = m.get("time_format", "auto")
     if time_format not in TIME_FORMATS:
         raise ConfigError(f"{path}.time_format", f"must be one of {list(TIME_FORMATS)}")
-    priority = m.get("notify_priority", "normal")
+    priority = m.get("notify_priority", DEFAULT_NOTIFY_PRIORITY)
     if priority not in NOTIFY_PRIORITIES:
         raise ConfigError(f"{path}.notify_priority", f"must be one of {list(NOTIFY_PRIORITIES)}")
     target = None

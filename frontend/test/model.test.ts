@@ -168,7 +168,7 @@ describe("conflicts", () => {
         time_format: "auto",
         notify_failures: false,
         notify_target: null,
-        notify_priority: "normal",
+        notify_priority: "high",
       },
       tabs: [{ id: "t1", name: "Week", enabled: true, conditions: emptyGroup(), defaults: [] }],
       blocks: [block("a")],

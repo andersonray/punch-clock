@@ -79,7 +79,7 @@ export interface Settings {
   notify_priority: NotifyPriority;
 }
 
-export type NotifyPriority = "low" | "normal" | "high";
+export type NotifyPriority = "low" | "normal" | "high" | "critical";
 
 /** A phone with the Home Assistant app, from `notify/phones`. */
 export interface NotifyPhone {
