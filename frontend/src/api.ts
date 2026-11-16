@@ -9,6 +9,8 @@ import type {
   Group,
   HomeAssistant,
   Info,
+  NotifyPhone,
+  NotifyTestResult,
   Settings,
   Status,
   Tab,
@@ -86,6 +88,16 @@ export class PunchClockApi {
 
   reapply(): Promise<void> {
     return this.call("reapply");
+  }
+
+  /** The phones with the Home Assistant app that failure notifications can go to. */
+  notifyPhones(): Promise<{ phones: NotifyPhone[] }> {
+    return this.call("notify/phones");
+  }
+
+  /** Sends a sample notification with the saved phone and priority settings. */
+  notifyTest(): Promise<NotifyTestResult> {
+    return this.call("notify/test");
   }
 }
 

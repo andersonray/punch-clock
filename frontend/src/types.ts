@@ -72,6 +72,24 @@ export interface Settings {
   temperature_unit: string;
   /** "auto" follows the Home Assistant profile. */
   time_format: "auto" | "12" | "24";
+  /** Send a phone notification when a scheduled value can't be set. */
+  notify_failures: boolean;
+  /** The notify service to send to, such as "mobile_app_pixel_6"; null sends to every phone. */
+  notify_target: string | null;
+  notify_priority: NotifyPriority;
+}
+
+export type NotifyPriority = "low" | "normal" | "high" | "critical";
+
+/** A phone with the Home Assistant app, from `notify/phones`. */
+export interface NotifyPhone {
+  service: string;
+  name: string;
+}
+
+export interface NotifyTestResult {
+  sent: string[];
+  failed: { service: string; error: string }[];
 }
 
 export interface Config {

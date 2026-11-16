@@ -12,7 +12,7 @@ from collections import deque
 from datetime import datetime, tzinfo
 from typing import Any
 
-from homeassistant.const import EVENT_CORE_CONFIG_UPDATE
+from homeassistant.const import EVENT_CORE_CONFIG_UPDATE, Platform
 from homeassistant.core import (
     CALLBACK_TYPE,
     Context,
@@ -22,7 +22,7 @@ from homeassistant.core import (
     State,
     callback,
 )
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.event import (
@@ -32,12 +32,14 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util, slugify
 
+from . import notifier
 from .const import (
     DOMAIN,
     EVENT_APPLIED,
     EVENT_LOGBOOK_ENTRY,
     EVENT_PROBLEM,
     ISSUE_WRITE_BUDGET,
+    MASTER_SWITCH_SUFFIX,
     MAX_ERRORS,
     MEDIA_PLAYER_ON_TIMEOUT,
     SAFETY_INTERVAL,
@@ -60,6 +62,7 @@ from .logic.describe import (
     write_message,
 )
 from .logic.model import Config
+from .logic.notifications import entity_failure, payload, service_failure, unavailable_problem
 from .logic.resolver import SERVICE_PREFIX, SERVICE_SETTING, Key, Resolution, Source, resolve
 from .logic.state import SPECIAL_STATES, StateView
 from .logic.timemath import boundaries, next_boundary, week_minute
@@ -74,9 +77,10 @@ _MISSING = object()
 class PunchClockEngine:
     """Evaluates the schedule whenever something relevant changes and applies it."""
 
-    def __init__(self, hass: HomeAssistant, store: PunchClockStore) -> None:
+    def __init__(self, hass: HomeAssistant, store: PunchClockStore, entry_id: str) -> None:
         self.hass = hass
         self.store = store
+        self._entry_id = entry_id
         self.resolution = Resolution()
         self.next_boundary: datetime | None = None
         self.evaluated_at: datetime | None = None
@@ -262,13 +266,18 @@ class PunchClockEngine:
         for target, settings in writes.items():
             if target.startswith(SERVICE_PREFIX):
                 value = settings[SERVICE_SETTING]
-                if self._spend_budget(target):
+                problems: list[str] = []
+                if self._spend_budget(target, problems):
                     call = actions.plan_service(value["service"], value["target"], value["data"])
-                    self._launch(target, [call], reason, settings)
+                    self._launch(target, [call], reason, settings, settings, problems)
+                else:
+                    self._notify(target, settings, problems)
                 continue
             state = self.lookup(target)
             if state is None or not state.available:
                 self._pending.setdefault(target, {}).update(settings)
+                problem = unavailable_problem(None if state is None else state.state)
+                self._notify(target, settings, [problem])
                 continue
             self._write_entity(target, settings, state, reason)
 
@@ -279,21 +288,32 @@ class PunchClockEngine:
         result = actions.plan(
             entity_id, convert_settings(entity_id, settings, *self._units()), state
         )
-        for key, why in result.skipped:
-            self._record(entity_id, f"{key} skipped: {why}")
-        if result.calls and self._spend_budget(entity_id):
+        problems = [self._record(entity_id, f"{key} skipped: {why}") for key, why in result.skipped]
+        if result.calls and self._spend_budget(entity_id, problems):
             sent = {k: v for k, v in settings.items() if k not in result.unsent}
-            self._launch(entity_id, result.calls, reason, sent)
+            self._launch(entity_id, result.calls, reason, sent, settings, problems)
+        else:
+            self._notify(entity_id, settings, problems)
 
     @callback
     def _launch(
-        self, target: str, calls: list[ServiceCall], reason: str, settings: dict[str, Any]
+        self,
+        target: str,
+        calls: list[ServiceCall],
+        reason: str,
+        settings: dict[str, Any],
+        attempted: dict[str, Any],
+        problems: list[str],
     ) -> None:
         """Record a write in Activity and announce it, then make its service calls.
 
         Each write gets a context of its own, shared by its Activity entry, its event
         and its service calls. The entry comes first, so Activity doesn't credit the
         resulting state changes to the bare service call.
+
+        ``settings`` are the values sent and ``attempted`` every value the write tried to
+        set. ``problems`` already found (such as skipped values) go in one notification
+        with any failed calls, once the calls are done.
         """
         context = Context()
         data = self._applied_data(target, settings, reason)
@@ -306,8 +326,10 @@ class PunchClockEngine:
             message = write_message(target, settings, unit, data["sources"], reason)
             self._log(data["name"] or target, message, target, context)
         self.hass.bus.async_fire(EVENT_APPLIED, data, context=context)
+        sources = self._sources(target, attempted)
         self.hass.async_create_task(
-            self._async_execute(target, calls, context), f"{DOMAIN} apply {target}"
+            self._async_execute(target, calls, context, attempted, sources, problems),
+            f"{DOMAIN} apply {target}",
         )
 
     @callback
@@ -333,20 +355,26 @@ class PunchClockEngine:
     def _applied_data(self, target: str, settings: dict[str, Any], reason: str) -> dict[str, Any]:
         """The punch_clock_applied event data; see docs/semantics.md."""
         config = self.store.config
-        by_source: dict[Source, list[str]] = {}
-        for key in settings:
-            desired = self.resolution.desired.get((target, key))
-            if desired is not None:
-                by_source.setdefault(desired.source, []).append(key)
         data = self._target_data(target)
         if target.startswith(SERVICE_PREFIX):
             value = settings[SERVICE_SETTING]
             data.update(target=value["target"], service_data=value["data"])
         else:
             data.update(settings=settings, temperature_unit=config.settings.temperature_unit)
-        data["sources"] = [source_data(config, s, keys) for s, keys in by_source.items()]
+        data["sources"] = self._sources(target, settings)
         data["reason"] = reason
         return data
+
+    @callback
+    def _sources(self, target: str, settings: dict[str, Any]) -> list[dict[str, Any]]:
+        """The blocks and tab defaults behind ``settings``, as ``source_data``."""
+        config = self.store.config
+        by_source: dict[Source, list[str]] = {}
+        for key in settings:
+            desired = self.resolution.desired.get((target, key))
+            if desired is not None:
+                by_source.setdefault(desired.source, []).append(key)
+        return [source_data(config, s, keys) for s, keys in by_source.items()]
 
     @callback
     def _target_data(self, target: str) -> dict[str, Any]:
@@ -356,7 +384,15 @@ class PunchClockEngine:
         state = self.hass.states.get(target)
         return {"entity_id": target, "name": state.name if state else None, "service": None}
 
-    async def _async_execute(self, target: str, calls: list[ServiceCall], context: Context) -> None:
+    async def _async_execute(
+        self,
+        target: str,
+        calls: list[ServiceCall],
+        context: Context,
+        attempted: dict[str, Any],
+        sources: list[dict[str, Any]],
+        problems: list[str],
+    ) -> None:
         failed = False
         for index, call in enumerate(calls):
             try:
@@ -372,7 +408,9 @@ class PunchClockEngine:
             except Exception as err:
                 failed = True
                 detail = str(err) or type(err).__name__
-                self._record(target, f"{call.domain}.{call.service} failed: {detail}")
+                problems.append(
+                    self._record(target, f"{call.domain}.{call.service} failed: {detail}")
+                )
                 continue
             if (call.domain, call.service) == ("media_player", "turn_on") and index < len(
                 calls
@@ -380,6 +418,7 @@ class PunchClockEngine:
                 await self._async_wait_until_on(target)
         if failed:
             async_dispatcher_send(self.hass, SIGNAL_STATUS_UPDATED)
+        self._notify(target, attempted, problems, sources, context)
 
     async def _async_wait_until_on(self, entity_id: str) -> None:
         loop = asyncio.get_running_loop()
@@ -421,8 +460,11 @@ class PunchClockEngine:
         async_dispatcher_send(self.hass, SIGNAL_STATUS_UPDATED)
 
     @callback
-    def _spend_budget(self, target: str) -> bool:
-        """Count a write; refuse it if the target was written too often recently."""
+    def _spend_budget(self, target: str, problems: list[str]) -> bool:
+        """Count a write; refuse it if the target was written too often recently.
+
+        When this pauses the target's writes, the problem is added to ``problems``.
+        """
         now = dt_util.utcnow().timestamp()
         issue_id = f"{ISSUE_WRITE_BUDGET}_{slugify(target)}"
         until = self._suppressed.get(target)
@@ -437,10 +479,12 @@ class PunchClockEngine:
         if len(writes) >= WRITE_BUDGET:
             self._suppressed[target] = now + WRITE_SUPPRESS_SECONDS
             writes.clear()
-            self._record(
-                target,
-                f"more than {WRITE_BUDGET} writes in {WRITE_BUDGET_WINDOW / 60:.0f} minutes; "
-                f"writes paused for {WRITE_SUPPRESS_SECONDS / 60:.0f} minutes",
+            problems.append(
+                self._record(
+                    target,
+                    f"more than {WRITE_BUDGET} writes in {WRITE_BUDGET_WINDOW / 60:.0f} minutes; "
+                    f"writes paused for {WRITE_SUPPRESS_SECONDS / 60:.0f} minutes",
+                )
             )
             ir.async_create_issue(
                 self.hass,
@@ -456,7 +500,8 @@ class PunchClockEngine:
         return True
 
     @callback
-    def _record(self, target: str, message: str) -> None:
+    def _record(self, target: str, message: str) -> str:
+        """Report a problem in the status, Activity, the log and an event. Returns ``message``."""
         _LOGGER.warning("%s: %s", target, message)
         self._errors.appendleft(
             {"time": dt_util.utcnow().isoformat(), "entity_id": target, "message": message}
@@ -467,6 +512,58 @@ class PunchClockEngine:
         else:
             self._log(problem["name"] or target, problem_message(message), target)
         self.hass.bus.async_fire(EVENT_PROBLEM, problem)
+        return message
+
+    @callback
+    def _notify(
+        self,
+        target: str,
+        attempted: dict[str, Any],
+        problems: list[str],
+        sources: list[dict[str, Any]] | None = None,
+        context: Context | None = None,
+    ) -> None:
+        """Send one phone notification about a write's problems, if that's turned on.
+
+        The failure also gets an entry in Punch Clock's own Activity (its master switch's),
+        whether or not a phone gets the notification, so Activity keeps a history of them.
+        """
+        config = self.store.config
+        settings = config.settings
+        if not problems or not settings.notify_failures:
+            return
+        if sources is None:
+            sources = self._sources(target, attempted)
+        info = self._target_data(target)
+        if info["service"]:
+            value = attempted[SERVICE_SETTING]
+            targets = [self._name(i) for i in entity_ids(value["target"])]
+            failure = service_failure(config, info["service"], targets, sources, problems)
+        else:
+            failure = entity_failure(config, target, info["name"], attempted, sources, problems)
+        self._log(TITLE, failure.activity, self._master_switch())
+        services = notifier.services_for(self.hass, settings.notify_target)
+        if not services:
+            _LOGGER.warning(
+                "Couldn't notify about %s: %s",
+                target,
+                f"notify.{settings.notify_target} not found"
+                if settings.notify_target
+                else "no phone has the Home Assistant app",
+            )
+            return
+        data = payload(
+            failure.title, failure.message, f"{DOMAIN}_{slugify(target)}", settings.notify_priority
+        )
+        self.hass.async_create_task(
+            notifier.async_send(self.hass, services, data, context), f"{DOMAIN} notify {target}"
+        )
+
+    @callback
+    def _master_switch(self) -> str | None:
+        """The master switch's entity ID, which may have been renamed; None if it's gone."""
+        unique_id = f"{self._entry_id}_{MASTER_SWITCH_SUFFIX}"
+        return er.async_get(self.hass).async_get_entity_id(Platform.SWITCH, DOMAIN, unique_id)
 
     # ------------------------------------------------------------------ status
 

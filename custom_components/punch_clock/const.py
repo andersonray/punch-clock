@@ -27,6 +27,9 @@ CONF_SIDEBAR_ICON: Final = "sidebar_icon"
 CONF_REQUIRE_ADMIN: Final = "require_admin"
 DEFAULT_REQUIRE_ADMIN: Final = True
 
+# The master switch's unique ID is "<entry_id>_master". Failure entries in Activity name it.
+MASTER_SWITCH_SUFFIX: Final = "master"
+
 SIGNAL_CONFIG_UPDATED: Final = f"{DOMAIN}_config_updated"
 SIGNAL_STATUS_UPDATED: Final = f"{DOMAIN}_status_updated"
 EVENT_APPLIED: Final = f"{DOMAIN}_applied"

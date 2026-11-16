@@ -29,6 +29,8 @@ a calendar.
   automations and dashboards.
 - **Activity entries.** Everything Punch Clock sets, and any problem it runs into, shows in Home
   Assistant's Activity view and in the entity's own Activity, with the block it came from.
+- **Failure notifications.** Optionally, a phone notification from the Home Assistant app when a
+  scheduled value can't be set, naming the entity, the block and what went wrong.
 
 Punch Clock respects manual changes. It only writes a value when the scheduled value changes, so
 adjusting the thermostat by hand during a block sticks until the next scheduled change. The exact
@@ -175,6 +177,18 @@ The gear icon opens the settings: first day of the week; units (Celsius or Fahre
 scheduled temperatures, and a 12- or 24-hour clock); hour height; and a list of recent problems.
 Scheduled temperatures are stored in the unit you choose and converted to Home Assistant's unit
 when they're set. Changing the unit converts the temperatures already in your schedules.
+
+Under **Notifications**, turn on **Notify a phone when a scheduled value can't be set** to get a
+notification from the Home Assistant app whenever Punch Clock can't set a value: the entity is
+unavailable (Punch Clock still sets it when it's back), a service call fails, the entity doesn't
+offer the value, or too many writes pause an entity. The orange notification, with a warning
+icon, names the entity, the block (with its tab, day and times) or tab default behind the value,
+and what went wrong. It goes to every phone unless you pick one, at high priority (pops up on
+the screen; on an iPhone it also breaks through Focus) unless you pick low, normal or critical
+(sounds like an alarm, even on silent). **Send a test notification** shows what it looks like.
+Each failure is also listed in Punch Clock's own Activity, so filtering Activity by the Punch
+Clock device shows the history of values it couldn't set. It's off by default. See
+[docs/semantics.md](docs/semantics.md#failure-notifications).
 
 ### On a phone
 

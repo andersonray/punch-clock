@@ -176,6 +176,9 @@ def test_default_config_has_a_tab() -> None:
     assert len(empty.tabs) == 1
     assert empty.settings.temperature_unit == "°C"
     assert empty.settings.time_format == "auto"
+    assert empty.settings.notify_failures is False
+    assert empty.settings.notify_target is None
+    assert empty.settings.notify_priority == "high"
 
 
 def test_legacy_null_temperature_unit_means_celsius() -> None:

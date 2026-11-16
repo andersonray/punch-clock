@@ -1,8 +1,10 @@
 from typing import Any
 
 import pytest
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import device_registry as dr
 from homeassistant.loader import async_get_integration
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 from custom_components.punch_clock.const import DOMAIN
@@ -237,3 +239,55 @@ async def test_non_admin_allowed_when_option_off(
     await setup_integration(hass, options={"require_admin": False})
     client = Client(await hass_ws_client(hass, hass_read_only_access_token))
     assert (await client.call("config/get"))["tabs"]
+
+
+def fake_phone(hass: HomeAssistant, service: str, sent: list[str], *, broken: bool = False) -> None:
+    async def handler(call: ServiceCall) -> None:
+        if broken:
+            raise ValueError("not connected")
+        sent.append(service)
+
+    hass.services.async_register("notify", service, handler)
+
+
+async def test_notify_phones(client: Client, hass: HomeAssistant) -> None:
+    assert await client.call("notify/phones") == {"phones": []}
+    # A phone registered as "Pixel 6" and renamed in Home Assistant, a phone whose app entry
+    # is gone, and a notify service that isn't a phone.
+    entry = MockConfigEntry(domain="mobile_app", title="Pixel 6", data={"device_name": "Pixel 6"})
+    entry.add_to_hass(hass)
+    devices = dr.async_get(hass)
+    device = devices.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={("mobile_app", "abc")}, name="Pixel 6"
+    )
+    devices.async_update_device(device.id, name_by_user="Ray's phone")
+    sent: list[str] = []
+    for service in ("mobile_app_pixel_6", "mobile_app_old_tablet", "family"):
+        fake_phone(hass, service, sent)
+    assert await client.call("notify/phones") == {
+        "phones": [
+            {"service": "mobile_app_old_tablet", "name": "old tablet"},
+            {"service": "mobile_app_pixel_6", "name": "Ray's phone"},
+        ]
+    }
+
+
+async def test_notify_test(client: Client, hass: HomeAssistant) -> None:
+    with pytest.raises(CommandError) as err:
+        await client.call("notify/test")
+    assert err.value.code == "not_found"
+
+    sent: list[str] = []
+    fake_phone(hass, "mobile_app_pixel", sent)
+    fake_phone(hass, "mobile_app_tablet", sent, broken=True)
+    result = await client.call("notify/test")
+    assert result == {
+        "sent": ["mobile_app_pixel"],
+        "failed": [{"service": "mobile_app_tablet", "error": "not connected"}],
+    }
+    assert sent == ["mobile_app_pixel"]
+
+    await client.call("settings/update", changes={"notify_target": "mobile_app_gone"})
+    with pytest.raises(CommandError) as err:
+        await client.call("notify/test")
+    assert err.value.code == "not_found"

@@ -47,7 +47,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: PunchClockConfigEntry) -
     store = PunchClockStore(hass)
     await store.async_load()
 
-    engine = PunchClockEngine(hass, store)
+    engine = PunchClockEngine(hass, store, entry.entry_id)
     entry.runtime_data = PunchClockData(entry, store, engine, str(integration.version))
 
     await async_register_panel(hass, entry, str(integration.version))

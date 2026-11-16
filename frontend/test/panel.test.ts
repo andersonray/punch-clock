@@ -41,6 +41,9 @@ function makeConfig(): Config {
       debounce_seconds: 2,
       temperature_unit: "°C",
       time_format: "auto",
+      notify_failures: false,
+      notify_target: null,
+      notify_priority: "high",
     },
     tabs: [
       { id: "t_1", name: "Week", enabled: true, conditions: emptyGroup("g_t1"), defaults: [] },
@@ -138,6 +141,13 @@ function fakeHass(initial: Config, status: Status = makeStatus()): Fake {
       switch (msg.type) {
         case "punch_clock/info":
           return { version: __PC_VERSION__, time_zone: "UTC", temperature_unit: "°C" } as T;
+        case "punch_clock/notify/phones":
+          return { phones: [{ service: "mobile_app_pixel_6", name: "Pixel 6" }] } as T;
+        case "punch_clock/notify/test":
+          return {
+            sent: ["mobile_app_pixel_6"],
+            failed: [{ service: "mobile_app_tablet", error: "not connected" }],
+          } as T;
         case "punch_clock/conditions/evaluate":
           return { id: "g", type: "group", result: false, items: [] } as T;
         case "punch_clock/blocks/create": {
@@ -1611,5 +1621,87 @@ describe("punch-clock-panel", () => {
     expect(editor()!._draft).toMatchObject({ id: "b_morning", color: "#33b679" });
     // One block left: its row has nothing to split or delete.
     expect(shadow(editor()).querySelector('.when-row [aria-label^="Delete"]')).toBeNull();
+  });
+});
+
+describe("notification settings", () => {
+  const dialog = () => shadow(el).querySelector("pc-settings-dialog")!;
+  const find = <T extends Element>(selector: string) => shadow(dialog()).querySelector<T>(selector);
+  const openSettings = async () => {
+    shadow(el).querySelector<HTMLButtonElement>('[aria-label="Settings"]')!.click();
+    await settle(el);
+    await (dialog() as unknown as { updateComplete: Promise<void> }).updateComplete;
+  };
+  /** The option rendered as selected. (happy-dom's `select.value` ignores a later `selected`.) */
+  const selectedValue = (select: HTMLSelectElement) =>
+    select.querySelector("option[selected]")?.getAttribute("value");
+  const choose = (select: HTMLSelectElement, value: string) => {
+    select.value = value;
+    select.dispatchEvent(new Event("change"));
+  };
+
+  it("is off by default and turns on with the switch", async () => {
+    await mount();
+    await openSettings();
+    const toggle = find<HTMLInputElement>(".notify-failures")!;
+    expect(toggle.checked).toBe(false);
+    expect(find(".notify-target")).toBeNull();
+    expect(find(".notify-priority")).toBeNull();
+
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("change"));
+    expect(lastCall("settings/update")).toEqual({
+      type: "punch_clock/settings/update",
+      changes: { notify_failures: true },
+    });
+  });
+
+  it("lists the phones, saves the phone and priority, and sends a test", async () => {
+    await mount((config) => (config.settings.notify_failures = true));
+    await openSettings();
+    expect(lastCall("notify/phones")).toBeDefined();
+    const target = find<HTMLSelectElement>(".notify-target")!;
+    expect([...target.options].map((o) => [o.value, o.textContent?.trim()])).toEqual([
+      ["", "Every phone"],
+      ["mobile_app_pixel_6", "Pixel 6"],
+    ]);
+    choose(target, "mobile_app_pixel_6");
+    expect(lastCall("settings/update")).toMatchObject({
+      changes: { notify_target: "mobile_app_pixel_6" },
+    });
+    choose(target, "");
+    expect(lastCall("settings/update")).toMatchObject({ changes: { notify_target: null } });
+
+    const priority = find<HTMLSelectElement>(".notify-priority")!;
+    expect([...priority.options].map((o) => o.value)).toEqual([
+      "low",
+      "normal",
+      "high",
+      "critical",
+    ]);
+    expect(selectedValue(priority)).toBe("high");
+    choose(priority, "critical");
+    expect(lastCall("settings/update")).toMatchObject({
+      changes: { notify_priority: "critical" },
+    });
+
+    find<HTMLButtonElement>(".notify-test")!.click();
+    await settle(el);
+    await (dialog() as unknown as { updateComplete: Promise<void> }).updateComplete;
+    expect(lastCall("notify/test")).toBeDefined();
+    expect(find('[role="status"]')?.textContent).toBe(
+      "Sent to Pixel 6. Couldn't send to mobile_app_tablet: not connected.",
+    );
+  });
+
+  it("shows a saved phone that's gone", async () => {
+    await mount((config) => {
+      config.settings.notify_failures = true;
+      config.settings.notify_target = "mobile_app_old";
+    });
+    await openSettings();
+    const target = find<HTMLSelectElement>(".notify-target")!;
+    expect(selectedValue(target)).toBe("mobile_app_old");
+    expect(target.selectedOptions[0]!.textContent?.trim()).toBe("mobile_app_old (not found)");
   });
 });

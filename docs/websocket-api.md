@@ -28,6 +28,8 @@ part is invalid.
 | `punch_clock/blocks/delete_many` | `block_ids` | `{}` (all or nothing) |
 | `punch_clock/conditions/evaluate` | `conditions`: a condition group | an explanation tree: `{id, type, result, items, known?, actual?}` |
 | `punch_clock/reapply` | – | `{}`. Writes every desired value that an entity doesn't currently have. |
+| `punch_clock/notify/phones` | – | `{phones: [{service, name}]}`: every `notify.mobile_app_*` service, with its phone's name in Home Assistant, sorted by name |
+| `punch_clock/notify/test` | – | `{sent, failed: [{service, error}]}`, after sending a sample failure notification with the saved `notify_target` and `notify_priority`. `not_found` if there's no phone to send to. |
 
 The server assigns the IDs of new tabs and blocks. When blocks are created, the nested
 condition and action IDs are always regenerated, so duplicated blocks never share IDs.
